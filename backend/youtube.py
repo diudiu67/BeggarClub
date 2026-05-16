@@ -24,7 +24,9 @@ def _get_cookies_file() -> str | None:
     cookies = settings.YOUTUBE_COOKIES
     if not cookies:
         return None
-    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+    # Normalize line endings — Railway may store \r\n
+    cookies = cookies.replace("\r\n", "\n").replace("\r", "\n")
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, newline="\n")
     tmp.write(cookies)
     tmp.close()
     _cookies_path = tmp.name
@@ -85,22 +87,37 @@ async def get_stream_url(video_id: str) -> str:
 
     def _extract():
         url = f"https://www.youtube.com/watch?v={video_id}"
-        opts = {
-            **YDL_OPTIONS,
-            # tv_embedded works without PO token; android/ios/web now require one
-            "extractor_args": {"youtube": {"player_client": ["tv_embedded"]}},
-        }
         cookies = _get_cookies_file()
-        if cookies:
-            opts["cookiefile"] = cookies
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if "entries" in info:
-                info = info["entries"][0]
-            stream_url = info.get("url")
-            if not stream_url:
-                raise RuntimeError(f"yt-dlp returned no stream URL for {video_id}")
-            return stream_url
+
+        # Try clients in order of preference
+        # With cookies: web (authenticated). Without: tv_embedded, then ios
+        clients_to_try = (
+            [["web"], ["web_creator"], ["tv_embedded"]]
+            if cookies
+            else [["tv_embedded"], ["ios"], ["mweb"]]
+        )
+
+        last_error: Exception = RuntimeError("no clients tried")
+        for clients in clients_to_try:
+            opts = {
+                **YDL_OPTIONS,
+                "extractor_args": {"youtube": {"player_client": clients}},
+            }
+            if cookies:
+                opts["cookiefile"] = cookies
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    if "entries" in info:
+                        info = info["entries"][0]
+                    stream_url = info.get("url")
+                    if stream_url:
+                        return stream_url
+            except Exception as e:
+                last_error = e
+                continue
+
+        raise RuntimeError(f"yt-dlp failed all clients for {video_id}: {last_error}")
 
     return await loop.run_in_executor(None, _extract)
 
