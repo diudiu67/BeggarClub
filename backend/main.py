@@ -19,8 +19,10 @@ async def lifespan(app: FastAPI):
     await init_db()
     # Store FastAPI's event loop so the bot thread can post broadcasts back to it
     bot_runner.set_fastapi_loop(asyncio.get_event_loop())
+    token = settings.DISCORD_TOKEN
+    print(f"[Config] DISCORD_TOKEN length={len(token)} dots={token.count('.')} first8={token[:8]!r}")
     # Launch bot in its own thread + event loop (prevents voice timeout issues)
-    bot_runner.launch(settings.DISCORD_TOKEN)
+    bot_runner.launch(token)
     print("[Server] Started — bot launching in background thread")
     yield
 
