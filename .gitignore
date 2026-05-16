@@ -1,0 +1,24 @@
+# Environment
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.db
+*.db-shm
+*.db-wal
+
+# Node
+node_modules/
+.cache/
+# frontend/dist is intentionally committed so Railway doesn't need Node.js
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,3 @@
+@echo off
+echo Showing Discord Music Bot logs (Ctrl+C to exit)...
+pm2 logs discord-music
