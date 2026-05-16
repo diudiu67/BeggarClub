@@ -6,11 +6,12 @@ from googleapiclient.discovery import build
 from config import settings
 
 YDL_OPTIONS = {
-    "format": "bestaudio/best",
+    "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best[height<=480]/best",
     "quiet": True,
     "no_warnings": True,
     "source_address": "0.0.0.0",
     "noplaylist": True,
+    "ignoreerrors": False,
 }
 
 _cookies_path: str | None = None
