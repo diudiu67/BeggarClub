@@ -132,16 +132,36 @@ def _try_soundcloud(video_id: str) -> str:
         items = resp.get("items", [])
         snippet = items[0]["snippet"] if items else {}
         query = f"{snippet.get('title', '')} {snippet.get('channelTitle', '')}".strip() or video_id
-    except Exception:
+    except Exception as e:
+        print(f"[SC] YouTube lookup failed: {e}")
         query = video_id
 
-    with yt_dlp.YoutubeDL({**YDL_OPTIONS, "quiet": True}) as ydl:
-        info = ydl.extract_info(f"scsearch1:{query}", download=False)
-        if info and "entries" in info and info["entries"]:
-            stream_url = info["entries"][0].get("url", "")
-            if stream_url:
-                return stream_url
-    raise RuntimeError(f"SoundCloud fallback failed for: {query}")
+    print(f"[SC] Searching SoundCloud: {query!r}")
+    # SoundCloud-specific options: no source_address (causes issues), allow search playlists
+    sc_opts = {
+        "format": "bestaudio/best",
+        "quiet": False,
+        "no_warnings": False,
+        "noplaylist": False,
+    }
+    try:
+        with yt_dlp.YoutubeDL(sc_opts) as ydl:
+            info = ydl.extract_info(f"scsearch1:{query}", download=False)
+            if info and "entries" in info and info["entries"]:
+                entry = info["entries"][0]
+                stream_url = entry.get("url", "")
+                if not stream_url:
+                    formats = entry.get("formats", [])
+                    if formats:
+                        stream_url = max(formats, key=lambda f: f.get("abr") or 0).get("url", "")
+                if stream_url:
+                    print(f"[SC] Got stream URL for: {entry.get('title', query)!r}")
+                    return stream_url
+        raise RuntimeError("No stream URL in SoundCloud result")
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(f"SoundCloud search error: {e}")
 
 
 async def get_stream_url(video_id: str) -> str:
@@ -149,7 +169,8 @@ async def get_stream_url(video_id: str) -> str:
     for fn in (_try_ytdlp, _try_piped, _try_invidious, _try_soundcloud):
         try:
             return await loop.run_in_executor(None, fn, video_id)
-        except Exception:
+        except Exception as e:
+            print(f"[stream] {fn.__name__} failed: {e}")
             continue
     raise RuntimeError(f"All stream sources failed for {video_id}")
 
