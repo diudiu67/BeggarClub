@@ -1,4 +1,6 @@
 import asyncio
+import tempfile
+import os
 import yt_dlp
 from googleapiclient.discovery import build
 from config import settings
@@ -10,6 +12,22 @@ YDL_OPTIONS = {
     "source_address": "0.0.0.0",
     "noplaylist": True,
 }
+
+_cookies_path: str | None = None
+
+
+def _get_cookies_file() -> str | None:
+    global _cookies_path
+    if _cookies_path and os.path.exists(_cookies_path):
+        return _cookies_path
+    cookies = settings.YOUTUBE_COOKIES
+    if not cookies:
+        return None
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+    tmp.write(cookies)
+    tmp.close()
+    _cookies_path = tmp.name
+    return _cookies_path
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -71,6 +89,9 @@ async def get_stream_url(video_id: str) -> str:
             # tv_embedded works without PO token; android/ios/web now require one
             "extractor_args": {"youtube": {"player_client": ["tv_embedded"]}},
         }
+        cookies = _get_cookies_file()
+        if cookies:
+            opts["cookiefile"] = cookies
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
             if "entries" in info:
@@ -93,6 +114,9 @@ async def get_recommendations(video_id: str, max_results: int = 10) -> list[dict
     def _extract_radio():
         radio_url = f"https://www.youtube.com/watch?v={video_id}&list=RD{video_id}"
         opts = {**YDL_OPTIONS, "noplaylist": False, "playlistend": max_results + 1, "extract_flat": True}
+        cookies = _get_cookies_file()
+        if cookies:
+            opts["cookiefile"] = cookies
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(radio_url, download=False)
             entries = info.get("entries", [])[1:]  # skip the seed song
