@@ -12,6 +12,7 @@ interface Props {
   state: PlayerState;
   guildId: string;
   onToggleQueue: () => void;
+  onOpenPlayer: () => void;
   onRefresh: () => void;
 }
 
@@ -21,7 +22,7 @@ function formatDuration(secs: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export default function NowPlaying({ state, guildId, onToggleQueue, onRefresh }: Props) {
+export default function NowPlaying({ state, guildId, onToggleQueue, onOpenPlayer, onRefresh }: Props) {
   const { current, is_playing, is_paused, autoplay, shuffle, volume } = state;
 
   const handle = (fn: () => Promise<unknown>) => () => fn().then(onRefresh).catch(console.error);
@@ -36,11 +37,16 @@ export default function NowPlaying({ state, guildId, onToggleQueue, onRefresh }:
       <div className="flex items-center gap-3 w-64 flex-shrink-0">
         {current ? (
           <>
-            <img
-              src={current.thumbnail}
-              alt={current.title}
-              className="w-12 h-12 rounded object-cover bg-yt-elevated flex-shrink-0"
-            />
+            <button onClick={onOpenPlayer} className="flex-shrink-0 group relative" title="Open player">
+              <img
+                src={current.thumbnail}
+                alt={current.title}
+                className="w-12 h-12 rounded object-cover bg-yt-elevated"
+              />
+              <div className="absolute inset-0 bg-black/40 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <span className="text-white text-xs">▲</span>
+              </div>
+            </button>
             <div className="min-w-0">
               <p className="text-sm font-medium text-white truncate">{current.title}</p>
               <p className="text-xs text-yt-muted truncate">{current.artist}</p>

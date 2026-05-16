@@ -72,6 +72,7 @@ def _get_youtube_client():
 def _try_ytdlp(video_id: str) -> str:
     url = f"https://www.youtube.com/watch?v={video_id}"
     cookies = _get_cookies_file()
+    proxy = settings.YTDLP_PROXY or None
     clients = [["tv_embedded"], ["ios"]] if not cookies else [["web"], ["tv_embedded"]]
     last_err: Exception = RuntimeError("no clients tried")
     for client in clients:
@@ -81,6 +82,8 @@ def _try_ytdlp(video_id: str) -> str:
         }
         if cookies:
             opts["cookiefile"] = cookies
+        if proxy:
+            opts["proxy"] = proxy
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import type { Guild, VoiceChannel, Playlist, PlayerState } from "./types";
 import {
@@ -11,6 +11,7 @@ import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import NowPlaying from "./components/NowPlaying";
 import Queue from "./components/Queue";
+import PlayerOverlay from "./components/PlayerOverlay";
 import Home from "./pages/Home";
 import SearchPage from "./pages/SearchPage";
 import PlaylistPage from "./pages/PlaylistPage";
@@ -22,6 +23,7 @@ export default function App() {
   const [selectedChannel, setSelectedChannel] = useState<VoiceChannel | null>(null);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [showQueue, setShowQueue] = useState(false);
+  const [showPlayer, setShowPlayer] = useState(false);
 
   const { state, refresh } = usePlayer(selectedGuild?.id ?? null);
 
@@ -124,7 +126,16 @@ export default function App() {
         {/* Main content */}
         <main className="flex-1 overflow-y-auto bg-yt-bg">
           <Routes>
-            <Route path="/" element={<Home />} />
+            <Route
+              path="/"
+              element={
+                <Home
+                  playlists={playlists}
+                  guildId={selectedGuild?.id ?? null}
+                  onCreatePlaylist={handleCreatePlaylist}
+                />
+              }
+            />
             <Route
               path="/search"
               element={
@@ -149,7 +160,7 @@ export default function App() {
         </main>
 
         {/* Queue panel */}
-        {showQueue && (
+        {showQueue && !showPlayer && (
           <Queue
             queue={playerState.queue}
             onRemove={handleRemoveFromQueue}
@@ -158,11 +169,23 @@ export default function App() {
         )}
       </div>
 
+      {/* Full player overlay */}
+      {showPlayer && (
+        <PlayerOverlay
+          state={playerState}
+          guildId={selectedGuild?.id ?? ""}
+          onClose={() => setShowPlayer(false)}
+          onRemoveFromQueue={handleRemoveFromQueue}
+          onRefresh={refresh}
+        />
+      )}
+
       {/* Now Playing bar */}
       <NowPlaying
         state={playerState}
         guildId={selectedGuild?.id ?? ""}
         onToggleQueue={() => setShowQueue((v) => !v)}
+        onOpenPlayer={() => setShowPlayer(true)}
         onRefresh={refresh}
       />
     </div>
