@@ -140,13 +140,15 @@ def _try_soundcloud(video_id: str) -> str:
         query = video_id
 
     print(f"[SC] Searching SoundCloud: {query!r}")
-    # SoundCloud-specific options: no source_address (causes issues), allow search playlists
     sc_opts = {
         "format": "bestaudio/best",
         "quiet": False,
         "no_warnings": False,
         "noplaylist": False,
     }
+    proxy = settings.YTDLP_PROXY or None
+    if proxy:
+        sc_opts["proxy"] = proxy
     try:
         with yt_dlp.YoutubeDL(sc_opts) as ydl:
             info = ydl.extract_info(f"scsearch1:{query}", download=False)
