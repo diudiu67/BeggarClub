@@ -1,6 +1,6 @@
 # Railway deployment config — installs FFmpeg and Python via Nix
 [phases.setup]
-nixPkgs = ["ffmpeg", "python3"]
+nixPkgs = ["ffmpeg", "python3", "libopus"]
 
 [phases.install]
 cmds = [

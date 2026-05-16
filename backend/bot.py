@@ -1,9 +1,40 @@
 import asyncio
+import glob
 import discord
+import discord.opus
 from discord.ext import commands
 from player import player_manager, Track
 from youtube import get_stream_url, get_recommendations
 from config import settings
+
+
+def _load_opus():
+    if discord.opus.is_loaded():
+        return
+    try:
+        discord.opus.load_opus("opus")
+        return
+    except Exception:
+        pass
+    # Nix stores libraries under hash-based paths — search for them
+    for pattern in [
+        "/nix/store/*/lib/libopus.so*",
+        "/run/current-system/sw/lib/libopus.so*",
+        "/usr/lib/libopus.so*",
+        "/usr/lib/x86_64-linux-gnu/libopus.so*",
+    ]:
+        for path in sorted(glob.glob(pattern), reverse=True):
+            try:
+                discord.opus.load_opus(path)
+                if discord.opus.is_loaded():
+                    print(f"[Bot] Opus loaded from {path}")
+                    return
+            except Exception:
+                continue
+    print("[Bot] WARNING: Opus library not found — voice audio will not work")
+
+
+_load_opus()
 
 intents = discord.Intents.default()
 intents.message_content = True
