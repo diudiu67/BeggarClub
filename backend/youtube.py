@@ -6,12 +6,11 @@ from googleapiclient.discovery import build
 from config import settings
 
 YDL_OPTIONS = {
-    "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best[height<=480]/best",
+    "format": "bestaudio/best",
     "quiet": True,
     "no_warnings": True,
     "source_address": "0.0.0.0",
     "noplaylist": True,
-    "ignoreerrors": False,
 }
 
 _cookies_path: str | None = None
@@ -99,23 +98,25 @@ async def get_stream_url(video_id: str) -> str:
 
         last_error: Exception = RuntimeError("no clients tried")
         for clients in clients_to_try:
-            opts = {
-                **YDL_OPTIONS,
-                "extractor_args": {"youtube": {"player_client": clients}},
-            }
-            if cookies:
-                opts["cookiefile"] = cookies
-            try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    if "entries" in info:
-                        info = info["entries"][0]
-                    stream_url = info.get("url")
-                    if stream_url:
-                        return stream_url
-            except Exception as e:
-                last_error = e
-                continue
+            for fmt in ["bestaudio/best", "best"]:
+                opts = {
+                    **YDL_OPTIONS,
+                    "format": fmt,
+                    "extractor_args": {"youtube": {"player_client": clients}},
+                }
+                if cookies:
+                    opts["cookiefile"] = cookies
+                try:
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        if "entries" in info:
+                            info = info["entries"][0]
+                        stream_url = info.get("url")
+                        if stream_url:
+                            return stream_url
+                except Exception as e:
+                    last_error = e
+                    continue
 
         raise RuntimeError(f"yt-dlp failed all clients for {video_id}: {last_error}")
 
