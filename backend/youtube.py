@@ -1,9 +1,39 @@
 import asyncio
+import json
 import tempfile
 import os
+import urllib.request
 import yt_dlp
 from googleapiclient.discovery import build
 from config import settings
+
+# Piped instances used as fallback when yt-dlp is blocked by YouTube's IP filter
+_PIPED_INSTANCES = [
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi.darkness.services",
+    "https://piped-api.garudalinux.org",
+]
+
+
+def _get_stream_url_piped(video_id: str) -> str:
+    """Extract audio stream URL via Piped API (bypasses Railway IP block)."""
+    for base in _PIPED_INSTANCES:
+        try:
+            req = urllib.request.Request(
+                f"{base}/streams/{video_id}",
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            audio_streams = data.get("audioStreams", [])
+            if audio_streams:
+                best = max(audio_streams, key=lambda s: s.get("bitrate", 0))
+                url = best.get("url", "")
+                if url:
+                    return url
+        except Exception:
+            continue
+    raise RuntimeError(f"Piped API: all instances failed for {video_id}")
 
 YDL_OPTIONS = {
     "format": "bestaudio/best",
@@ -120,7 +150,11 @@ async def get_stream_url(video_id: str) -> str:
 
         raise RuntimeError(f"yt-dlp failed all clients for {video_id}: {last_error}")
 
-    return await loop.run_in_executor(None, _extract)
+    try:
+        return await loop.run_in_executor(None, _extract)
+    except Exception:
+        # Railway IPs are blocked by YouTube — fall back to Piped API
+        return await loop.run_in_executor(None, _get_stream_url_piped, video_id)
 
 
 async def get_recommendations(video_id: str, max_results: int = 10) -> list[dict]:
