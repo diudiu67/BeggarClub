@@ -4,7 +4,7 @@ pydantic-settings==2.14.1
 sqlalchemy==2.0.49
 aiosqlite==0.22.1
 discord.py==2.7.1
-yt-dlp==2026.3.17
+yt-dlp
 PyNaCl==1.6.2
 davey
 google-api-python-client==2.196.0
