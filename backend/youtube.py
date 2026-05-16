@@ -7,33 +7,61 @@ import yt_dlp
 from googleapiclient.discovery import build
 from config import settings
 
-# Piped instances used as fallback when yt-dlp is blocked by YouTube's IP filter
+# Fallback services when yt-dlp is blocked by YouTube's IP filter on Railway
 _PIPED_INSTANCES = [
     "https://pipedapi.kavin.rocks",
-    "https://pipedapi.darkness.services",
+    "https://api.piped.projectsegfau.lt",
     "https://piped-api.garudalinux.org",
+    "https://pipedapi.darkness.services",
+    "https://api.piped.yt",
+]
+
+_INVIDIOUS_INSTANCES = [
+    "https://inv.nadeko.net",
+    "https://invidious.io.lol",
+    "https://yt.artemislena.eu",
+    "https://invidious.privacyredirect.com",
+    "https://invidious.fdn.fr",
 ]
 
 
+def _fetch_json(url: str, timeout: int = 10) -> dict:
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
 def _get_stream_url_piped(video_id: str) -> str:
-    """Extract audio stream URL via Piped API (bypasses Railway IP block)."""
     for base in _PIPED_INSTANCES:
         try:
-            req = urllib.request.Request(
-                f"{base}/streams/{video_id}",
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read())
-            audio_streams = data.get("audioStreams", [])
-            if audio_streams:
-                best = max(audio_streams, key=lambda s: s.get("bitrate", 0))
-                url = best.get("url", "")
+            data = _fetch_json(f"{base}/streams/{video_id}")
+            streams = data.get("audioStreams", [])
+            if streams:
+                url = max(streams, key=lambda s: s.get("bitrate", 0)).get("url", "")
                 if url:
                     return url
         except Exception:
             continue
-    raise RuntimeError(f"Piped API: all instances failed for {video_id}")
+    raise RuntimeError(f"Piped: all instances failed for {video_id}")
+
+
+def _get_stream_url_invidious(video_id: str) -> str:
+    for base in _INVIDIOUS_INSTANCES:
+        try:
+            data = _fetch_json(f"{base}/api/v1/videos/{video_id}")
+            streams = [
+                f for f in data.get("adaptiveFormats", [])
+                if f.get("type", "").startswith("audio/")
+            ]
+            if not streams:
+                streams = data.get("formatStreams", [])
+            if streams:
+                url = max(streams, key=lambda f: int(f.get("bitrate", 0))).get("url", "")
+                if url:
+                    return url
+        except Exception:
+            continue
+    raise RuntimeError(f"Invidious: all instances failed for {video_id}")
 
 YDL_OPTIONS = {
     "format": "bestaudio/best",
@@ -153,8 +181,14 @@ async def get_stream_url(video_id: str) -> str:
     try:
         return await loop.run_in_executor(None, _extract)
     except Exception:
-        # Railway IPs are blocked by YouTube — fall back to Piped API
+        pass
+
+    try:
         return await loop.run_in_executor(None, _get_stream_url_piped, video_id)
+    except Exception:
+        pass
+
+    return await loop.run_in_executor(None, _get_stream_url_invidious, video_id)
 
 
 async def get_recommendations(video_id: str, max_results: int = 10) -> list[dict]:
