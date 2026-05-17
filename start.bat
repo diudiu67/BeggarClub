@@ -1,18 +1,27 @@
 @echo off
-echo Starting Discord Music Bot...
+setlocal
+cd /d "%~dp0"
 
-:: Kill any existing instance first
-pm2 delete discord-music >nul 2>&1
+REM Build frontend if dist doesn't exist
+if not exist "frontend\dist" (
+    echo [Setup] Building frontend...
+    cd frontend
+    call npm install
+    call npm run build
+    cd ..
+)
 
-:: Start in background
-pm2 start ecosystem.config.js
+REM Install/update backend dependencies
+echo [Setup] Checking backend dependencies...
+pip install -r backend\requirements.txt
 
+REM Start the server
 echo.
-echo Bot is running in the background.
-echo Open http://localhost:8000 in your browser.
+echo [Server] Starting Discord Music Bot...
+echo [Server] Web UI: http://localhost:8080
+echo [Server] Press Ctrl+C to stop.
 echo.
-echo To stop: run stop.bat
-echo To see logs: run logs.bat
-echo.
-timeout /t 3 /nobreak >nul
-start http://localhost:8000
+cd backend
+python -m uvicorn main:app --host 0.0.0.0 --port 8080
+
+pause

@@ -11,8 +11,6 @@ class Settings(BaseSettings):
     WEB_SECRET: str = "changeme"
     DATABASE_URL: str = "sqlite+aiosqlite:///./music.db"
     FRONTEND_URL: str = "http://localhost:5173"
-    YOUTUBE_COOKIES: str = ""  # Netscape-format cookies.txt content for yt-dlp
-    YTDLP_PROXY: str = ""     # HTTP/SOCKS5 proxy for yt-dlp, e.g. http://user:pass@host:port
 
     class Config:
         env_file = str(_ENV_FILE)

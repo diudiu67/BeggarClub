@@ -11,12 +11,31 @@ from config import settings
 def _load_opus():
     if discord.opus.is_loaded():
         return
-    try:
-        discord.opus.load_opus("opus")
-        return
-    except Exception:
-        pass
-    # Nix stores libraries under hash-based paths — search for them
+    # Try common names first (works on most systems)
+    for name in ["opus", "libopus", "libopus-0", "libopus.so.0"]:
+        try:
+            discord.opus.load_opus(name)
+            if discord.opus.is_loaded():
+                print(f"[Bot] Opus loaded: {name}")
+                return
+        except Exception:
+            continue
+    # Windows: look for DLL in common locations
+    import sys
+    if sys.platform == "win32":
+        win_paths = [
+            r"C:\Windows\System32\opus.dll",
+            r"C:\Windows\System32\libopus-0.dll",
+        ]
+        for path in win_paths:
+            try:
+                discord.opus.load_opus(path)
+                if discord.opus.is_loaded():
+                    print(f"[Bot] Opus loaded from {path}")
+                    return
+            except Exception:
+                continue
+    # Linux/Nix: search hash-based store paths
     for pattern in [
         "/nix/store/*/lib/libopus.so*",
         "/run/current-system/sw/lib/libopus.so*",

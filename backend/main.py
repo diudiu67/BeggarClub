@@ -1,5 +1,4 @@
 import asyncio
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, HTTPException
@@ -20,10 +19,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     # Store FastAPI's event loop so the bot thread can post broadcasts back to it
     bot_runner.set_fastapi_loop(asyncio.get_event_loop())
-    raw_token = os.environ.get("DISCORD_TOKEN", "NOT_IN_ENV")
-    print(f"[Debug] os.environ DISCORD_TOKEN length={len(raw_token)} first8={raw_token[:8]!r}")
     token = settings.DISCORD_TOKEN
-    print(f"[Config] pydantic DISCORD_TOKEN length={len(token)} dots={token.count('.')} first8={token[:8]!r}")
     # Launch bot in its own thread + event loop (prevents voice timeout issues)
     bot_runner.launch(token)
     print("[Server] Started — bot launching in background thread")
