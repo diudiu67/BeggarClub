@@ -1,5 +1,6 @@
 import asyncio
 import glob
+import time
 import discord
 import discord.opus
 from discord.ext import commands
@@ -108,11 +109,13 @@ async def play_track(guild_id: str, track: Track):
     if not track.stream_url:
         track.stream_url = await get_stream_url(track.video_id)
 
-    if gp.voice_client.is_playing():
+    if gp.voice_client.is_playing() or gp.voice_client.is_paused():
+        gp._suppress_on_song_end = True
         gp.voice_client.stop()
 
     gp.current = track
     gp.is_paused = False
+    gp.started_at = time.time()
 
     source = discord.FFmpegPCMAudio(track.stream_url, **FFMPEG_OPTIONS)
     source = discord.PCMVolumeTransformer(source, volume=gp.volume)
@@ -126,9 +129,42 @@ async def play_track(guild_id: str, track: Track):
     gp.voice_client.play(source, after=after_play)
     await gp.broadcast("now_playing")
 
+    # Pre-fetch recommendations into queue so Up Next is populated immediately
+    if gp.autoplay and len(gp.queue) == 0:
+        asyncio.create_task(_prefetch_recs(guild_id))
+
+
+async def _prefetch_recs(guild_id: str):
+    gp = player_manager.get(guild_id)
+    if not gp.current or not gp.autoplay:
+        return
+    seed_id = gp.current.video_id
+    try:
+        recs = await get_recommendations(seed_id, max_results=5)
+    except Exception:
+        return
+    added = False
+    for rec in recs:
+        vid = rec.get("video_id", "")
+        if not vid:
+            continue
+        if (not any(t.video_id == vid for t in gp.history[-10:]) and
+                not any(t.video_id == vid for t in gp.queue) and
+                gp.current.video_id != vid):
+            new_track = Track(**{k: rec[k] for k in Track.__dataclass_fields__ if k in rec})
+            gp.queue.append(new_track)
+            added = True
+    if added:
+        await gp.broadcast("queue_updated")
+
 
 async def _on_song_end(guild_id: str):
     gp = player_manager.get(guild_id)
+
+    # Suppress if play_track manually interrupted this song
+    if gp._suppress_on_song_end:
+        gp._suppress_on_song_end = False
+        return
 
     if gp.current:
         gp.history.append(gp.current)
@@ -245,7 +281,7 @@ async def set_volume(guild_id: str, volume: float):
     gp.volume = max(0.0, min(2.0, volume))
     if gp.voice_client and gp.voice_client.source:
         gp.voice_client.source.volume = gp.volume
-    await gp.broadcast("volume_changed", {"volume": gp.volume})
+    await gp.broadcast("volume_changed")
 
 
 async def stop_and_disconnect(guild_id: str):

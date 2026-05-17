@@ -57,7 +57,6 @@ async def search_youtube(query: str, max_results: int = 10) -> list[dict]:
             part="snippet",
             maxResults=max_results,
             type="video",
-            videoCategoryId="10",
         ).execute()
 
         results = []

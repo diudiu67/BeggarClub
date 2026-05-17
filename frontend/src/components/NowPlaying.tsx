@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   Play, Pause, SkipBack, SkipForward, Shuffle, Repeat,
   Volume2, ListMusic, Infinity,
@@ -24,6 +25,19 @@ function formatDuration(secs: number) {
 
 export default function NowPlaying({ state, guildId, onToggleQueue, onOpenPlayer, onRefresh }: Props) {
   const { current, is_playing, is_paused, autoplay, shuffle, volume } = state;
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!current || !state.started_at) { setElapsed(0); return; }
+    setElapsed(Math.floor(Date.now() / 1000 - (state.started_at ?? 0)));
+    if (!is_playing || is_paused) return;
+    const id = setInterval(() => {
+      setElapsed(Math.floor(Date.now() / 1000 - (state.started_at ?? 0)));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [current?.video_id, state.started_at, is_playing, is_paused]);
+
+  const progress = current ? Math.min((elapsed / current.duration) * 100, 100) : 0;
 
   const handle = (fn: () => Promise<unknown>) => () => fn().then(onRefresh).catch(console.error);
 
@@ -113,12 +127,12 @@ export default function NowPlaying({ state, guildId, onToggleQueue, onOpenPlayer
           </button>
         </div>
 
-        {/* Duration bar (static — no seek endpoint yet) */}
+        {/* Progress bar */}
         {current && (
           <div className="flex items-center gap-2 w-full max-w-sm">
-            <span className="text-xs text-yt-muted w-8 text-right">0:00</span>
+            <span className="text-xs text-yt-muted w-8 text-right">{formatDuration(Math.min(elapsed, current.duration))}</span>
             <div className="flex-1 h-1 bg-yt-border rounded-full">
-              <div className="w-0 h-full bg-yt-red rounded-full" />
+              <div className="h-full bg-yt-red rounded-full transition-all duration-1000" style={{ width: `${progress}%` }} />
             </div>
             <span className="text-xs text-yt-muted w-8">{formatDuration(current.duration)}</span>
           </div>

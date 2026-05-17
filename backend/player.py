@@ -35,6 +35,8 @@ class GuildPlayer:
         self.autoplay: bool = True
         self.shuffle: bool = False
         self.volume: float = 1.0
+        self.started_at: float = 0.0
+        self._suppress_on_song_end: bool = False
         self.ws_clients: set[WebSocket] = set()
         self._autoplay_fetcher = None
 
@@ -57,6 +59,7 @@ class GuildPlayer:
             "shuffle": self.shuffle,
             "volume": self.volume,
             "voice_connected": vc is not None and vc.is_connected(),
+            "started_at": self.started_at,
         }
 
     async def _send_to_all(self, payload: dict):

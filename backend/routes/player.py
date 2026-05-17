@@ -62,8 +62,6 @@ async def play(req: PlayRequest):
 
     try:
         if req.play_now:
-            if gp.voice_client.is_playing() or gp.voice_client.is_paused():
-                gp.voice_client.stop()
             gp.queue.insert(0, track)
             next_track = gp.pop_next()
             if next_track:

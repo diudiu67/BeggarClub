@@ -32,6 +32,7 @@ export interface PlayerState {
   shuffle: boolean;
   volume: number;
   voice_connected: boolean;
+  started_at?: number;
 }
 
 export interface Guild {

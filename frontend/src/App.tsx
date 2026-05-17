@@ -36,9 +36,16 @@ export default function App() {
     }
   }, [state?.voice_connected]);
 
-  // Load guilds on mount
+  // Load guilds on mount and restore saved guild
   useEffect(() => {
-    getGuilds().then(setGuilds).catch(console.error);
+    getGuilds().then((g) => {
+      setGuilds(g);
+      const savedId = localStorage.getItem("selectedGuildId");
+      if (savedId) {
+        const saved = g.find((x) => x.id === savedId);
+        if (saved) setSelectedGuild(saved);
+      }
+    }).catch(console.error);
   }, []);
 
   // Load voice channels when guild changes
@@ -55,6 +62,7 @@ export default function App() {
 
   const handleSelectGuild = (guild: Guild) => {
     setSelectedGuild(guild);
+    localStorage.setItem("selectedGuildId", guild.id);
   };
 
   const handleJoinChannel = async (channel: VoiceChannel) => {

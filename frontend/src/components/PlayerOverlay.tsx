@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   X, Play, Pause, SkipBack, SkipForward,
   Shuffle, Infinity, Volume2, Music2,
@@ -30,6 +30,19 @@ export default function PlayerOverlay({
 }: Props) {
   const [tab, setTab] = useState<Tab>("upnext");
   const { current, queue, is_playing, is_paused, autoplay, shuffle, volume } = state;
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!current || !state.started_at) { setElapsed(0); return; }
+    setElapsed(Math.floor(Date.now() / 1000 - (state.started_at ?? 0)));
+    if (!is_playing || is_paused) return;
+    const id = setInterval(() => {
+      setElapsed(Math.floor(Date.now() / 1000 - (state.started_at ?? 0)));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [current?.video_id, state.started_at, is_playing, is_paused]);
+
+  const progress = current ? Math.min((elapsed / current.duration) * 100, 100) : 0;
 
   const handle = (fn: () => Promise<unknown>) => () => fn().then(onRefresh).catch(console.error);
 
@@ -108,6 +121,15 @@ export default function PlayerOverlay({
                 >
                   <Infinity size={20} />
                 </button>
+              </div>
+
+              {/* Progress bar */}
+              <div className="flex items-center gap-2 w-full max-w-xs">
+                <span className="text-xs text-yt-muted w-8 text-right">{fmt(Math.min(elapsed, current.duration))}</span>
+                <div className="flex-1 h-1 bg-yt-border rounded-full">
+                  <div className="h-full bg-yt-red rounded-full transition-all duration-1000" style={{ width: `${progress}%` }} />
+                </div>
+                <span className="text-xs text-yt-muted w-8">{fmt(current.duration)}</span>
               </div>
 
               {/* Volume */}
