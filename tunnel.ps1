@@ -8,13 +8,15 @@ if (Test-Path $envFile) {
         }
     }
 }
-$TINYURL_ALIAS = $envVars["TINYURL_ALIAS"]
-$TINYURL_TOKEN = $envVars["TINYURL_TOKEN"]
+$GITHUB_TOKEN = $envVars["GITHUB_TOKEN"]
+$GITHUB_REPO  = "diudiu67/BeggarClub"
+$GITHUB_FILE  = "docs/index.html"
 
 # Find cloudflared.exe
 $cloudflaredExe = $null
 $candidates = @(
     "cloudflared",
+    "D:\Cloudflared\cloudflared.exe",
     "D:\Cloud\cloudflared.exe",
     "C:\cloudflared\cloudflared.exe",
     (Join-Path $PSScriptRoot "cloudflared.exe")
@@ -26,7 +28,7 @@ foreach ($c in $candidates) {
 }
 if (-not $cloudflaredExe) {
     Write-Host "[Tunnel] ERROR: cloudflared.exe not found."
-    Write-Host "[Tunnel] Place cloudflared.exe in D:\Cloud\ or add it to your system PATH."
+    Write-Host "[Tunnel] Place cloudflared.exe in D:\Cloudflared\ or add it to PATH."
     pause; exit 1
 }
 
@@ -57,32 +59,63 @@ for ($i = 0; $i -lt 30; $i++) {
 if ($tunnelUrl) {
     Write-Host "[Tunnel] URL: $tunnelUrl"
 
-    if ($TINYURL_TOKEN -and $TINYURL_ALIAS) {
-        Write-Host "[Tunnel] Updating TinyURL..."
+    if ($GITHUB_TOKEN) {
+        Write-Host "[Tunnel] Updating GitHub Pages redirect..."
         try {
-            $headers = @{
-                "Authorization" = "Bearer $TINYURL_TOKEN"
+            $ghHeaders = @{
+                "Authorization" = "Bearer $GITHUB_TOKEN"
+                "Accept"        = "application/vnd.github+json"
                 "Content-Type"  = "application/json"
             }
-            $body = @{ url = $tunnelUrl } | ConvertTo-Json
-            Invoke-RestMethod -Uri "https://api.tinyurl.com/alias/tinyurl/$TINYURL_ALIAS" `
-                -Method Patch -Headers $headers -Body $body | Out-Null
+
+            # Get current file SHA (required by GitHub API to update)
+            $fileInfo = Invoke-RestMethod `
+                -Uri "https://api.github.com/repos/$GITHUB_REPO/contents/$GITHUB_FILE" `
+                -Headers $ghHeaders
+            $sha = $fileInfo.sha
+
+            # Build redirect HTML
+            $html = @"
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>BeggarClub Music</title>
+  <meta http-equiv="refresh" content="0; url=$tunnelUrl">
+  <script>window.location.replace("$tunnelUrl");</script>
+</head>
+<body>
+  <p>Redirecting... <a href="$tunnelUrl">Click here if not redirected</a></p>
+</body>
+</html>
+"@
+            $encoded = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($html))
+
+            $body = @{
+                message = "update redirect"
+                content = $encoded
+                sha     = $sha
+            } | ConvertTo-Json
+
+            Invoke-RestMethod `
+                -Uri "https://api.github.com/repos/$GITHUB_REPO/contents/$GITHUB_FILE" `
+                -Method Put -Headers $ghHeaders -Body $body | Out-Null
+
             Write-Host ""
-            Write-Host "  =================================="
-            Write-Host "  Share this link with your members:"
-            Write-Host "  https://tinyurl.com/$TINYURL_ALIAS"
-            Write-Host "  =================================="
+            Write-Host "  ========================================="
+            Write-Host "  Share this permanent link with members:"
+            Write-Host "  https://diudiu67.github.io/BeggarClub"
+            Write-Host "  ========================================="
             Write-Host ""
         } catch {
-            Write-Host "[Tunnel] TinyURL update failed: $_"
+            Write-Host "[Tunnel] GitHub update failed: $_"
             Write-Host "[Tunnel] Share this directly: $tunnelUrl"
         }
     } else {
-        Write-Host "[Tunnel] No TinyURL config found. Share directly: $tunnelUrl"
+        Write-Host "[Tunnel] No GitHub token found. Share directly: $tunnelUrl"
     }
 } else {
     Write-Host "[Tunnel] ERROR: Could not detect tunnel URL from cloudflared output."
-    Write-Host "[Tunnel] Check $logFile for details."
 }
 
 Write-Host "[Tunnel] Tunnel is running. Press Ctrl+C to stop."
