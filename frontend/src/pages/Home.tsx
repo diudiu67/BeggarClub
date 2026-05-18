@@ -58,11 +58,19 @@ const QUICK_PICK_QUERIES = [
 
 const PLAYLIST_TITLE_FILTER = /\b(top\s*\d+|playlist|compilation|best of|greatest hits|collection|nonstop|mix|vol\.|part \d)/i;
 
+// Matches titles that explicitly call out "MV", "M/V", "Music Video", "Official Video", "PV", etc.
+const MV_TITLE_PATTERN = /(official\s*(m\/?v|music\s*video|video)|music\s*video|\bm\/v\b|\bpv\b|官方\s*mv|뮤직\s*비디오)/i;
+
 function isLikelySingleTrack(track: Track): boolean {
   if (track.duration < 60) return false;
   if (track.duration > 600) return false;
   if (PLAYLIST_TITLE_FILTER.test(track.title)) return false;
   return true;
+}
+
+function isLikelyMV(track: Track): boolean {
+  if (!isLikelySingleTrack(track)) return false;
+  return MV_TITLE_PATTERN.test(track.title);
 }
 
 function ScrollRow({
@@ -188,8 +196,16 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
       .then((r) => setTrending(r.filter(isLikelySingleTrack).slice(0, 6)))
       .catch(() => {});
     delay(1300)
-      .then(() => searchTracks("周杰伦 邓紫棋 Taylor Swift official music video award popular"))
-      .then((r) => setMvForYou(r.filter(isLikelySingleTrack).slice(0, 6)))
+      .then(() => Promise.all([
+        searchTracks("aespa NewJeans IVE BLACKPINK official music video MV 2024 2025"),
+        searchTracks("周杰伦 YOASOBI 米津玄師 Taylor Swift official music video MV"),
+      ]))
+      .then(([r1, r2]) => {
+        const merged = [...r1, ...r2]
+          .filter(isLikelyMV)
+          .filter((t, i, arr) => arr.findIndex((x) => x.video_id === t.video_id) === i);
+        setMvForYou(merged.slice(0, 6));
+      })
       .catch(() => {});
   }, []);
 
@@ -200,7 +216,7 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
   ].filter((col) => col.length > 0);
 
   return (
-    <div className="flex min-h-full">
+    <div className="flex flex-col md:flex-row min-h-full">
       {/* Left column */}
       <div className="flex-1 min-w-0 py-6">
         {/* Mood chips */}
@@ -313,8 +329,9 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
         </section>
       </div>
 
-      {/* Divider */}
-      <div className="w-px bg-yt-border flex-shrink-0" />
+      {/* Divider — vertical on desktop, horizontal on mobile */}
+      <div className="hidden md:block w-px bg-yt-border flex-shrink-0" />
+      <div className="block md:hidden mx-6 border-t border-yt-border" />
 
       {/* Right column */}
       <div className="flex-1 min-w-0 py-6">

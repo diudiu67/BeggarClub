@@ -31,6 +31,7 @@ export default function App() {
   const [showQueue, setShowQueue] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(false);
 
   const { state, refresh } = usePlayer(selectedGuild?.id ?? null);
 
@@ -132,10 +133,10 @@ export default function App() {
   const playerState = state ?? emptyState;
 
   return (
-    <div className="h-screen flex flex-col bg-yt-bg text-yt-text overflow-hidden">
+    <div className="h-dvh flex flex-col bg-yt-bg text-yt-text overflow-hidden">
       {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
       {/* Header */}
-      <Header mode={mode} onSetMode={setMode} />
+      <Header mode={mode} onSetMode={setMode} onToggleSidebar={() => setShowSidebar((v) => !v)} />
 
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
@@ -151,6 +152,8 @@ export default function App() {
           voiceChannels={voiceChannels}
           selectedChannel={selectedChannel}
           onJoinChannel={handleJoinChannel}
+          mobileOpen={showSidebar}
+          onMobileClose={() => setShowSidebar(false)}
         />
 
         {/* Main content */}

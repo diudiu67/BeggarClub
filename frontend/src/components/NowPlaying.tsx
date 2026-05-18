@@ -68,124 +68,161 @@ export default function NowPlaying({ state, guildId, onToggleQueue, onOpenPlayer
 
   return (
     <div
-      className="h-20 flex-shrink-0 bg-gray-900 border-t border-gray-700 flex items-center px-4 gap-4 cursor-pointer"
+      className="flex-shrink-0 bg-gray-900 border-t border-gray-700 cursor-pointer"
+      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("button, input")) return;
         onOpenPlayer();
       }}
     >
-      {/* Current track info */}
-      <div className="flex items-center gap-3 w-64 flex-shrink-0">
-        {current ? (
-          <>
-            <div className="flex-shrink-0 relative group">
-              <img
-                src={current.thumbnail}
-                alt={current.title}
-                className="w-12 h-12 rounded object-cover bg-gray-800"
-              />
-              <div className="absolute inset-0 bg-black/30 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <span className="text-white text-xs">▲</span>
+      {/* Mini progress bar — shown on mobile as a thin top strip */}
+      {current && (
+        <div className="h-0.5 w-full bg-gray-700 md:hidden">
+          <div
+            className="h-full bg-yellow-500 transition-none"
+            style={{ width: `${Math.min((displayElapsed / current.duration) * 100, 100)}%` }}
+          />
+        </div>
+      )}
+
+      <div className="h-16 md:h-20 flex items-center px-3 md:px-4 gap-3 md:gap-4">
+        {/* Current track info */}
+        <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0 md:w-64 md:flex-none">
+          {current ? (
+            <>
+              <div className="flex-shrink-0 relative group">
+                <img
+                  src={current.thumbnail}
+                  alt={current.title}
+                  className="w-10 h-10 md:w-12 md:h-12 rounded object-cover bg-gray-800"
+                />
+                <div className="absolute inset-0 bg-black/30 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <span className="text-white text-xs">▲</span>
+                </div>
               </div>
+              <div className="min-w-0 flex-1 md:flex-none">
+                <p className="text-sm font-medium text-gray-100 truncate">{current.title}</p>
+                <p className="text-xs text-gray-400 truncate">{current.artist}</p>
+              </div>
+            </>
+          ) : (
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded bg-gray-800 flex-shrink-0 flex items-center justify-center text-gray-600">
+              🎵
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-100 truncate">{current.title}</p>
-              <p className="text-xs text-gray-400 truncate">{current.artist}</p>
-            </div>
-          </>
-        ) : (
-          <div className="w-12 h-12 rounded bg-gray-800 flex-shrink-0 flex items-center justify-center text-gray-600">
-            🎵
+          )}
+        </div>
+
+        {/* Desktop controls — hidden on mobile */}
+        <div className="hidden md:flex flex-1 flex-col items-center gap-1">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handle(() => shuffleQueue(guildId))}
+              className={`transition-colors ${shuffle ? "text-yellow-500" : "text-gray-500 hover:text-gray-200"}`}
+              title="Shuffle"
+            >
+              <Shuffle size={18} />
+            </button>
+
+            <button onClick={handlePrev} className="text-gray-500 hover:text-gray-200 transition-colors">
+              <SkipBack size={22} />
+            </button>
+
+            <button
+              onClick={
+                is_paused
+                  ? handle(() => resumePlayer(guildId))
+                  : handle(() => pausePlayer(guildId))
+              }
+              className="w-10 h-10 rounded-full bg-white flex items-center justify-center hover:bg-gray-200 transition-colors"
+            >
+              {is_playing && !is_paused ? (
+                <Pause size={20} fill="black" className="text-black" />
+              ) : (
+                <Play size={20} fill="black" className="text-black ml-0.5" />
+              )}
+            </button>
+
+            <button onClick={handleSkip} className="text-gray-500 hover:text-gray-200 transition-colors">
+              <SkipForward size={22} />
+            </button>
+
+            <button
+              onClick={handle(() => toggleAutoplay(guildId))}
+              className={`transition-colors ${autoplay ? "text-yellow-500" : "text-gray-500 hover:text-gray-200"}`}
+              title={autoplay ? "Autoplay on" : "Autoplay off"}
+            >
+              <Infinity size={18} />
+            </button>
           </div>
-        )}
-      </div>
 
-      {/* Controls */}
-      <div className="flex-1 flex flex-col items-center gap-1">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={handle(() => shuffleQueue(guildId))}
-            className={`transition-colors ${shuffle ? "text-yellow-500" : "text-gray-500 hover:text-gray-200"}`}
-            title="Shuffle"
-          >
-            <Shuffle size={18} />
-          </button>
+          {/* Desktop progress bar */}
+          {current && (
+            <div className="flex items-center gap-2 w-full max-w-sm">
+              <span className="text-xs text-gray-500 w-8 text-right">{fmt(displayElapsed)}</span>
+              <input
+                type="range"
+                min="0"
+                max={current.duration}
+                step="1"
+                value={displayElapsed}
+                onChange={(e) => setSeekDrag(parseFloat(e.target.value))}
+                onMouseUp={handleSeekRelease}
+                onTouchEnd={handleSeekRelease}
+                className="flex-1 h-1 cursor-pointer"
+                style={{ accentColor: "#D4A437" }}
+              />
+              <span className="text-xs text-gray-500 w-8">{fmt(current.duration)}</span>
+            </div>
+          )}
+        </div>
 
+        {/* Mobile controls — prev / play / skip only */}
+        <div className="flex md:hidden items-center gap-2 flex-shrink-0">
           <button onClick={handlePrev} className="text-gray-500 hover:text-gray-200 transition-colors">
-            <SkipBack size={22} />
+            <SkipBack size={20} />
           </button>
-
           <button
             onClick={
               is_paused
                 ? handle(() => resumePlayer(guildId))
                 : handle(() => pausePlayer(guildId))
             }
-            className="w-10 h-10 rounded-full bg-white flex items-center justify-center hover:bg-gray-200 transition-colors"
+            className="w-9 h-9 rounded-full bg-white flex items-center justify-center hover:bg-gray-200 transition-colors"
           >
             {is_playing && !is_paused ? (
-              <Pause size={20} fill="black" className="text-black" />
+              <Pause size={18} fill="black" className="text-black" />
             ) : (
-              <Play size={20} fill="black" className="text-black ml-0.5" />
+              <Play size={18} fill="black" className="text-black ml-0.5" />
             )}
           </button>
-
           <button onClick={handleSkip} className="text-gray-500 hover:text-gray-200 transition-colors">
-            <SkipForward size={22} />
-          </button>
-
-          <button
-            onClick={handle(() => toggleAutoplay(guildId))}
-            className={`transition-colors ${autoplay ? "text-yellow-500" : "text-gray-500 hover:text-gray-200"}`}
-            title={autoplay ? "Autoplay on" : "Autoplay off"}
-          >
-            <Infinity size={18} />
+            <SkipForward size={20} />
           </button>
         </div>
 
-        {/* Progress bar */}
-        {current && (
-          <div className="flex items-center gap-2 w-full max-w-sm">
-            <span className="text-xs text-gray-500 w-8 text-right">{fmt(displayElapsed)}</span>
+        {/* Right controls — desktop only */}
+        <div className="hidden md:flex items-center gap-3 w-48 justify-end flex-shrink-0">
+          <button
+            onClick={onToggleQueue}
+            className="text-gray-500 hover:text-gray-200 transition-colors"
+            title="Queue"
+          >
+            <ListMusic size={18} />
+          </button>
+
+          <div className="flex items-center gap-1.5">
+            <Volume2 size={16} className="text-gray-500 flex-shrink-0" />
             <input
               type="range"
               min="0"
-              max={current.duration}
-              step="1"
-              value={displayElapsed}
-              onChange={(e) => setSeekDrag(parseFloat(e.target.value))}
-              onMouseUp={handleSeekRelease}
-              onTouchEnd={handleSeekRelease}
-              className="flex-1 h-1 cursor-pointer"
+              max="1"
+              step="0.05"
+              value={localVolume}
+              onChange={handleVolume}
+              className="w-20"
               style={{ accentColor: "#D4A437" }}
             />
-            <span className="text-xs text-gray-500 w-8">{fmt(current.duration)}</span>
           </div>
-        )}
-      </div>
-
-      {/* Right controls */}
-      <div className="flex items-center gap-3 w-48 justify-end flex-shrink-0">
-        <button
-          onClick={onToggleQueue}
-          className="text-gray-500 hover:text-gray-200 transition-colors"
-          title="Queue"
-        >
-          <ListMusic size={18} />
-        </button>
-
-        <div className="flex items-center gap-1.5">
-          <Volume2 size={16} className="text-gray-500 flex-shrink-0" />
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={localVolume}
-            onChange={handleVolume}
-            className="w-20"
-            style={{ accentColor: "#D4A437" }}
-          />
         </div>
       </div>
     </div>

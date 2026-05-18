@@ -23,6 +23,7 @@ interface Props {
 }
 
 type Tab = "upnext" | "lyrics" | "related";
+type ViewMode = "song" | "video";
 
 function fmt(secs: number) {
   const m = Math.floor(secs / 60);
@@ -35,6 +36,7 @@ export default function PlayerOverlay({
 }: Props) {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>("upnext");
+  const [viewMode, setViewMode] = useState<ViewMode>("song");
   const { current, queue, is_playing, is_paused, autoplay, shuffle, volume } = state;
   const [elapsed, setElapsed] = useState(0);
   const [localVolume, setLocalVolume] = useState(Math.sqrt(volume));
@@ -44,6 +46,12 @@ export default function PlayerOverlay({
   const [showPlaylistMenu, setShowPlaylistMenu] = useState(false);
   const [addedToPlaylist, setAddedToPlaylist] = useState<number | null>(null);
   const playlistMenuRef = useRef<HTMLDivElement>(null);
+
+  // Always-fresh ref so the YT sync interval can read current bot state
+  const botStateRef = useRef({ is_playing, is_paused, started_at: state.started_at });
+  useEffect(() => {
+    botStateRef.current = { is_playing, is_paused, started_at: state.started_at };
+  });
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -66,6 +74,66 @@ export default function PlayerOverlay({
   };
 
   useEffect(() => { setLocalVolume(Math.sqrt(volume)); }, [volume]);
+
+  // Reset to song view on track change
+  useEffect(() => { setViewMode("song"); }, [current?.video_id]);
+
+  // YouTube IFrame Player API — muted, synced to bot position
+  useEffect(() => {
+    if (viewMode !== "video" || !current || !state.started_at) return;
+
+    const startedAt = state.started_at;
+    const getBotTime = () => Math.max(0, Math.floor(Date.now() / 1000 - startedAt));
+
+    let player: any = null;
+    let syncInterval: ReturnType<typeof setInterval>;
+
+    const createPlayer = () => {
+      if (!document.getElementById("yt-video-player")) return;
+      player = new (window as any).YT.Player("yt-video-player", {
+        videoId: current.video_id,
+        playerVars: { autoplay: 1, mute: 1, start: getBotTime(), rel: 0, controls: 1 },
+        events: {
+          onReady: (event: any) => {
+            event.target.seekTo(getBotTime(), true);
+            event.target.playVideo();
+            // Re-sync every 3 s to prevent drift
+            syncInterval = setInterval(() => {
+              try {
+                const { is_playing: playing, is_paused: paused, started_at: sa } = botStateRef.current;
+                const botTime = sa ? Math.max(0, Math.floor(Date.now() / 1000 - sa)) : 0;
+                const ytState = event.target.getPlayerState(); // 1=playing 2=paused
+                if (!playing || paused) {
+                  if (ytState === 1) event.target.pauseVideo();
+                } else {
+                  if (ytState !== 1) event.target.playVideo();
+                  if (Math.abs(event.target.getCurrentTime() - botTime) > 2)
+                    event.target.seekTo(botTime, true);
+                }
+              } catch (_) {}
+            }, 3000);
+          },
+        },
+      });
+    };
+
+    if ((window as any).YT?.Player) {
+      createPlayer();
+    } else {
+      if (!document.getElementById("yt-iframe-api")) {
+        const s = document.createElement("script");
+        s.id = "yt-iframe-api";
+        s.src = "https://www.youtube.com/iframe_api";
+        document.head.appendChild(s);
+      }
+      (window as any).onYouTubeIframeAPIReady = createPlayer;
+    }
+
+    return () => {
+      clearInterval(syncInterval);
+      try { player?.destroy(); } catch (_) {}
+    };
+  }, [viewMode, current?.video_id]);
 
   useEffect(() => {
     if (!current || !state.started_at) { setElapsed(0); return; }
@@ -135,8 +203,18 @@ export default function PlayerOverlay({
             <Home size={20} />
           </button>
           <div className="flex gap-6 text-sm font-medium">
-            <button className="text-yt-text border-b-2 border-yt-text pb-1">Song</button>
-            <button className="text-yt-muted hover:text-yt-text pb-1">Video</button>
+            <button
+              onClick={() => setViewMode("song")}
+              className={`pb-1 transition-colors ${viewMode === "song" ? "text-yt-text border-b-2 border-yt-text" : "text-yt-muted hover:text-yt-text"}`}
+            >
+              Song
+            </button>
+            <button
+              onClick={() => setViewMode("video")}
+              className={`pb-1 transition-colors ${viewMode === "video" ? "text-yt-text border-b-2 border-yt-text" : "text-yt-muted hover:text-yt-text"}`}
+            >
+              Video
+            </button>
           </div>
         </div>
         <button onClick={onClose} className="text-yt-muted hover:text-yt-text transition-colors">
@@ -150,11 +228,25 @@ export default function PlayerOverlay({
         <div className="flex-1 flex flex-col items-center justify-center gap-6 px-8">
           {current ? (
             <>
-              <img
-                src={current.thumbnail}
-                alt={current.title}
-                className="w-72 h-72 rounded-2xl object-cover shadow-2xl bg-yt-elevated"
-              />
+              {viewMode === "video" ? (
+                <>
+                  <div className="w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl bg-black">
+                    {/* 16:9 container — YT API fills the inner div with an iframe */}
+                    <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
+                      <div id="yt-video-player" className="absolute inset-0 w-full h-full" />
+                    </div>
+                  </div>
+                  <p className="text-center text-xs text-gray-400 mt-2">
+                    🔇 Muted — audio playing through Discord
+                  </p>
+                </>
+              ) : (
+                <img
+                  src={current.thumbnail}
+                  alt={current.title}
+                  className="w-72 h-72 rounded-2xl object-cover shadow-2xl bg-yt-elevated"
+                />
+              )}
               <div className="text-center">
                 <p className="text-xl font-bold text-yt-text truncate max-w-xs">{current.title}</p>
                 <p className="text-sm text-yt-muted mt-1">{current.artist}</p>
