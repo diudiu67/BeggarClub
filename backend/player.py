@@ -42,6 +42,10 @@ class GuildPlayer:
         self._prefetching_recs: bool = False
         self.ws_clients: set[WebSocket] = set()
         self._autoplay_fetcher = None
+        # Voice reconnection
+        self.last_voice_channel_id: Optional[str] = None   # last channel bot was in
+        self.intentional_disconnect: bool = False           # True = we chose to leave
+        self._last_reconnect_attempt: float = 0.0          # cooldown to avoid loops
 
     @property
     def is_playing(self) -> bool:

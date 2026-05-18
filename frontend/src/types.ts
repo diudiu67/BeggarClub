@@ -9,6 +9,8 @@ export interface Track {
 export interface Playlist {
   id: number;
   name: string;
+  icon: string;
+  color: string;
   created_at: string;
 }
 

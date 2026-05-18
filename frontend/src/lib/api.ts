@@ -80,6 +80,14 @@ export const deletePlaylist = (id: number) =>
 export const getPlaylist = (id: number) =>
   api.get<PlaylistDetail>(`/playlists/${id}`).then((r) => r.data);
 
+export const updatePlaylist = (id: number, data: { icon?: string; color?: string; name?: string }) =>
+  api.patch(`/playlists/${id}`, data).then((r) => r.data);
+
+export const uploadPlaylistIcon = (id: number, formData: FormData) =>
+  api.post<{ icon_url: string }>(`/playlists/${id}/icon`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  }).then((r) => r.data);
+
 export const addSongToPlaylist = (playlistId: number, track: Track) =>
   api.post(`/playlists/${playlistId}/songs`, track);
 

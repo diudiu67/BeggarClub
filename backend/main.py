@@ -110,6 +110,11 @@ async def websocket_endpoint(websocket: WebSocket, guild_id: str, secret: str = 
         gp.remove_ws_client(websocket)
 
 
+# Playlist icon uploads — served as static files
+PLAYLIST_ICONS_DIR = Path(__file__).parent / "playlist_icons"
+PLAYLIST_ICONS_DIR.mkdir(exist_ok=True)
+app.mount("/playlist-icons", StaticFiles(directory=PLAYLIST_ICONS_DIR), name="playlist-icons")
+
 # Serve the built React frontend (must come after all API/WS routes)
 if FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")

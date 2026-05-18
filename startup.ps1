@@ -12,6 +12,9 @@ $GITHUB_TOKEN = $envVars["GITHUB_TOKEN"]
 $GITHUB_REPO  = "diudiu67/BeggarClub"
 $GITHUB_FILE  = "docs/index.html"
 
+# Load full system + user PATH so ffmpeg and other tools are found
+$env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+
 $projectDir  = $PSScriptRoot
 $backendDir  = Join-Path $projectDir "backend"
 $cloudflared = "D:\Cloudflared\cloudflared.exe"

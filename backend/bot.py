@@ -1,5 +1,6 @@
 import asyncio
 import glob
+import logging
 import time
 import uuid
 import discord
@@ -8,6 +9,18 @@ from discord.ext import commands
 from player import player_manager, Track
 from youtube import get_stream_url, get_recommendations
 from config import settings
+
+# ── Voice event log (survives hidden-window runs) ────────────────────────────
+_vlog = logging.getLogger("voice")
+_vlog.setLevel(logging.DEBUG)
+_vfh = logging.FileHandler(
+    "D:/Test/discord-music/backend/voice_events.log",
+    encoding="utf-8",
+    mode="a",
+)
+_vfh.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+_vlog.addHandler(_vfh)
+_vlog.info("=== bot.py loaded ===")
 
 
 def _load_opus():
@@ -111,21 +124,134 @@ async def on_message(message: discord.Message):
             print(f"[Gallery] Failed to process attachment: {e}")
 
 
+@bot.command(name="web", aliases=["player", "ui", "link"])
+async def web_command(ctx: commands.Context):
+    url = settings.FRONTEND_URL
+    embed = discord.Embed(
+        title="🎵 BeggarClub Music Player",
+        description="Click the link below to open the web player",
+        color=0xD4A437,
+    )
+    embed.add_field(name="🔗 Open Player", value=url, inline=False)
+    embed.set_footer(text="Music controls • Playlists • Queue")
+    await ctx.send(embed=embed)
+
+
+@bot.event
+async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+    """Detect unexpected bot disconnects and automatically rejoin."""
+    if member.id != bot.user.id:
+        return  # Only care about the bot itself
+
+    before_name = before.channel.name if before.channel else "None"
+    after_name  = after.channel.name  if after.channel  else "None"
+    _vlog.info(f"on_voice_state_update  before=#{before_name}  after=#{after_name}")
+
+    # Bot left a channel (not moved to another one)
+    if before.channel is None or after.channel is not None:
+        return
+
+    guild_id = str(member.guild.id)
+    gp = player_manager.get(guild_id)
+
+    if gp.intentional_disconnect:
+        gp.intentional_disconnect = False
+        _vlog.info(f"Intentional disconnect from #{before.channel.name} — not rejoining")
+        return
+
+    # Unexpected disconnect — check cooldown (don't retry more than once per 30s)
+    now = time.time()
+    if now - gp._last_reconnect_attempt < 30:
+        _vlog.info(f"Unexpected disconnect from #{before.channel.name} — cooldown active, skipping")
+        return
+
+    gp._last_reconnect_attempt = now
+    channel_id = str(before.channel.id)
+    _vlog.info(f"Unexpected disconnect from #{before.channel.name} — scheduling rejoin in 5s  track={gp.current.title[:40] if gp.current else 'None'}")
+    asyncio.create_task(_rejoin_and_resume(guild_id, channel_id, gp.current, gp.started_at))
+
+
 @bot.event
 async def on_ready():
+    _vlog.info(f"on_ready  user={bot.user}  guilds={[g.name for g in bot.guilds]}")
     print(f"[Bot] Logged in as {bot.user} ({bot.user.id})")
+    url = settings.FRONTEND_URL
+    await bot.change_presence(
+        status=discord.Status.online,
+        activity=discord.Activity(
+            type=discord.ActivityType.listening,
+            name=url,
+        ),
+    )
     await _clear_all_voice()
 
 
 @bot.event
 async def on_resumed():
-    """Gateway RESUME carries stale voice session_ids which cause 4006. Clear them."""
-    print("[Bot] Gateway resumed — clearing stale voice state")
+    """Gateway RESUME carries stale voice session_ids which cause 4006.
+    Save current voice state, clear it, then silently rejoin + resume."""
+    _vlog.info("on_resumed — saving voice state before clearing")
+
+    # Save which channel each guild was in and what was playing
+    saved: dict[str, dict] = {}
+    for guild in bot.guilds:
+        gp = player_manager.get(str(guild.id))
+        vc_connected = gp.voice_client and gp.voice_client.is_connected()
+        _vlog.info(f"  guild={guild.name}  vc_connected={vc_connected}  last_channel={gp.last_voice_channel_id}  current={gp.current.title[:30] if gp.current else 'None'}")
+        if vc_connected:
+            saved[str(guild.id)] = {
+                "channel_id": str(gp.voice_client.channel.id),
+                "current": gp.current,
+                "started_at": gp.started_at,
+            }
+        elif gp.last_voice_channel_id and gp.current:
+            # Voice client already dropped before on_resumed fired — use saved channel
+            _vlog.info(f"  vc already gone, using last_voice_channel_id={gp.last_voice_channel_id}")
+            saved[str(guild.id)] = {
+                "channel_id": gp.last_voice_channel_id,
+                "current": gp.current,
+                "started_at": gp.started_at,
+            }
+
     await _clear_all_voice()
+
+    # Rejoin and resume for every guild that was active
+    for guild_id, state in saved.items():
+        _vlog.info(f"  scheduling rejoin for guild={guild_id} channel={state['channel_id']}")
+        asyncio.create_task(_rejoin_and_resume(guild_id, state["channel_id"], state["current"], state["started_at"]))
+
+
+async def _rejoin_and_resume(guild_id: str, channel_id: str, track, started_at: float):
+    """Rejoin a voice channel and resume playback after a gateway reconnect."""
+    await asyncio.sleep(5.0)  # Let Discord settle
+
+    _vlog.info(f"_rejoin_and_resume  guild={guild_id}  channel={channel_id}  track={track.title[:40] if track else 'None'}")
+    success, msg = await join_channel(guild_id, channel_id)
+    _vlog.info(f"  join_channel result: success={success}  msg={msg}")
+    if not success:
+        return
+
+    if track:
+        position = max(0.0, time.time() - started_at) if started_at else 0.0
+        if track.duration and position >= track.duration - 5:
+            position = 0.0
+        _vlog.info(f"  resuming at {int(position)}s")
+        gp = player_manager.get(guild_id)
+        gp.current = track
+        gp.started_at = started_at
+        try:
+            await seek_to(guild_id, position)
+        except Exception as e:
+            _vlog.info(f"  resume failed: {e}")
 
 
 async def _clear_all_voice():
     """Disconnect from all voice channels and wipe internal voice client cache."""
+    # Mark all guilds as intentionally disconnecting so on_voice_state_update
+    # doesn't trigger auto-rejoin while we're doing this deliberately.
+    for guild in bot.guilds:
+        player_manager.get(str(guild.id)).intentional_disconnect = True
+
     for vc in list(bot.voice_clients):
         try:
             await vc.disconnect(force=True)
@@ -410,6 +536,8 @@ async def join_channel(guild_id: str, channel_id: str) -> tuple[bool, str]:
         await asyncio.sleep(1.0)
 
         gp.voice_client = await channel.connect(timeout=30.0, reconnect=True)
+        gp.last_voice_channel_id = channel_id
+        gp.intentional_disconnect = False
         await gp.broadcast("voice_updated")
         return True, "ok"
     except discord.errors.ConnectionClosed as e:
@@ -478,6 +606,7 @@ async def set_volume(guild_id: str, volume: float):
 async def stop_and_disconnect(guild_id: str):
     gp = player_manager.get(guild_id)
     if gp.voice_client:
+        gp.intentional_disconnect = True
         gp.voice_client.stop()
         await gp.voice_client.disconnect()
         gp.voice_client = None

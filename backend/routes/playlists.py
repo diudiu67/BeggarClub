@@ -1,12 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from pydantic import BaseModel
+from pathlib import Path
 from database import get_db
 from models import Playlist, PlaylistSong
 from player import player_manager, Track
 import bot as discord_bot
 import bot_runner
+import time
+
+PLAYLIST_ICONS_DIR = Path(__file__).parent.parent / "playlist_icons"
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+MAX_ICON_SIZE = 5 * 1024 * 1024  # 5 MB
 
 router = APIRouter(prefix="/playlists", tags=["playlists"])
 
@@ -14,6 +20,12 @@ router = APIRouter(prefix="/playlists", tags=["playlists"])
 class CreatePlaylistRequest(BaseModel):
     guild_id: str
     name: str
+
+
+class UpdatePlaylistRequest(BaseModel):
+    name: str | None = None
+    icon: str | None = None
+    color: str | None = None
 
 
 class AddSongRequest(BaseModel):
@@ -37,7 +49,7 @@ async def list_playlists(guild_id: str, db: AsyncSession = Depends(get_db)):
     playlists = result.scalars().all()
     return {
         "playlists": [
-            {"id": p.id, "name": p.name, "created_at": p.created_at.isoformat()}
+            {"id": p.id, "name": p.name, "icon": p.icon or "🎵", "color": p.color or "red", "created_at": p.created_at.isoformat()}
             for p in playlists
         ]
     }
@@ -68,6 +80,8 @@ async def get_playlist(playlist_id: int, db: AsyncSession = Depends(get_db)):
     return {
         "id": playlist.id,
         "name": playlist.name,
+        "icon": playlist.icon or "🎵",
+        "color": playlist.color or "red",
         "guild_id": playlist.guild_id,
         "songs": [
             {
@@ -92,6 +106,51 @@ async def delete_playlist(playlist_id: int, db: AsyncSession = Depends(get_db)):
     await db.delete(playlist)
     await db.commit()
     return {"ok": True}
+
+
+@router.patch("/{playlist_id}")
+async def update_playlist(playlist_id: int, req: UpdatePlaylistRequest, db: AsyncSession = Depends(get_db)):
+    playlist = await db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    if req.name is not None:
+        playlist.name = req.name
+    if req.icon is not None:
+        playlist.icon = req.icon
+    if req.color is not None:
+        playlist.color = req.color
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/{playlist_id}/icon")
+async def upload_playlist_icon(playlist_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    playlist = await db.get(Playlist, playlist_id)
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, WebP and GIF images are allowed")
+
+    content = await file.read()
+    if len(content) > MAX_ICON_SIZE:
+        raise HTTPException(status_code=400, detail="Image must be under 5 MB")
+
+    ext = Path(file.filename or "icon.jpg").suffix.lower() or ".jpg"
+    filename = f"playlist_{playlist_id}_{int(time.time())}{ext}"
+    PLAYLIST_ICONS_DIR.mkdir(exist_ok=True)
+    (PLAYLIST_ICONS_DIR / filename).write_bytes(content)
+
+    # Delete old icon file if it was a previous upload
+    if playlist.icon and playlist.icon.startswith("/playlist-icons/"):
+        old_file = PLAYLIST_ICONS_DIR / playlist.icon.split("/")[-1]
+        if old_file.exists():
+            old_file.unlink(missing_ok=True)
+
+    url = f"/playlist-icons/{filename}"
+    playlist.icon = url
+    await db.commit()
+    return {"icon_url": url}
 
 
 @router.post("/{playlist_id}/songs")
