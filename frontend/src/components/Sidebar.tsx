@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { ListMusic, Images, Plus, Trash2 } from "lucide-react";
+import { ListMusic, Images, Plus, Trash2, X } from "lucide-react";
 import type { Guild, VoiceChannel, Playlist } from "../types";
 import iconUrl from "../assets/beggarclub_icon_light.svg?url";
 
@@ -16,6 +16,8 @@ interface Props {
   voiceChannels: VoiceChannel[];
   selectedChannel: VoiceChannel | null;
   onJoinChannel: (channel: VoiceChannel) => void;
+  mobileOpen: boolean;
+  onMobileClose: () => void;
 }
 
 export default function Sidebar({
@@ -23,14 +25,41 @@ export default function Sidebar({
   playlists, onCreatePlaylist, onDeletePlaylist,
   guilds, selectedGuild, onSelectGuild,
   voiceChannels, selectedChannel, onJoinChannel,
+  mobileOpen, onMobileClose,
 }: Props) {
   const members = selectedChannel?.member_names ?? [];
 
   return (
-    <aside className="w-60 flex-shrink-0 flex flex-col border-r border-yt-border overflow-y-auto" style={{ background: "#F7F8F9" }}>
+    <>
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={onMobileClose}
+        />
+      )}
+
+      <aside
+        className={`
+          w-60 flex-shrink-0 flex flex-col border-r border-yt-border overflow-y-auto
+          fixed md:static top-0 left-0 h-full z-50
+          transition-transform duration-300
+          ${mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+        `}
+        style={{ background: "#F7F8F9" }}
+      >
+
+      {/* Mobile close button */}
+      <button
+        className="md:hidden absolute top-3 right-3 text-yt-muted hover:text-yt-text transition-colors"
+        onClick={onMobileClose}
+        aria-label="Close menu"
+      >
+        <X size={18} />
+      </button>
 
       {/* Icon — clicking goes home */}
-      <NavLink to="/" end className="flex justify-center pt-5 pb-2 focus:outline-none">
+      <NavLink to="/" end className="flex justify-center pt-5 pb-2 focus:outline-none" onClick={onMobileClose}>
         <img
           src={iconUrl}
           alt="BeggarClub"
@@ -155,6 +184,7 @@ export default function Sidebar({
           </>
         )}
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
