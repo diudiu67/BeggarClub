@@ -13,6 +13,7 @@ class Track:
     thumbnail: str
     duration: int
     stream_url: str = ""
+    requested_by: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -21,6 +22,7 @@ class Track:
             "artist": self.artist,
             "thumbnail": self.thumbnail,
             "duration": self.duration,
+            "requested_by": self.requested_by,
         }
 
 
@@ -34,9 +36,10 @@ class GuildPlayer:
         self.is_paused: bool = False
         self.autoplay: bool = True
         self.shuffle: bool = False
-        self.volume: float = 1.0
+        self.volume: float = 0.5
         self.started_at: float = 0.0
-        self._suppress_on_song_end: bool = False
+        self._play_generation: int = 0
+        self._prefetching_recs: bool = False
         self.ws_clients: set[WebSocket] = set()
         self._autoplay_fetcher = None
 
@@ -49,6 +52,8 @@ class GuildPlayer:
 
     def get_state(self) -> dict:
         vc = self.voice_client
+        vc_connected = vc is not None and vc.is_connected()
+        vc_channel = vc.channel if vc_connected and vc and hasattr(vc, "channel") else None
         return {
             "guild_id": self.guild_id,
             "current": self.current.to_dict() if self.current else None,
@@ -58,7 +63,9 @@ class GuildPlayer:
             "autoplay": self.autoplay,
             "shuffle": self.shuffle,
             "volume": self.volume,
-            "voice_connected": vc is not None and vc.is_connected(),
+            "voice_connected": vc_connected,
+            "voice_channel_id": str(vc_channel.id) if vc_channel else None,
+            "voice_channel_name": vc_channel.name if vc_channel else None,
             "started_at": self.started_at,
         }
 
@@ -115,6 +122,7 @@ class GuildPlayer:
         track = self.history.pop()
         if self.current:
             self.queue.insert(0, self.current)
+            self.current = None  # Clear so play_track won't re-add it to history
         return track
 
 

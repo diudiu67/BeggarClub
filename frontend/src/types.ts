@@ -32,6 +32,8 @@ export interface PlayerState {
   shuffle: boolean;
   volume: number;
   voice_connected: boolean;
+  voice_channel_id?: string | null;
+  voice_channel_name?: string | null;
   started_at?: number;
 }
 
@@ -45,4 +47,18 @@ export interface VoiceChannel {
   id: string;
   name: string;
   members: number;
+  member_names?: string[];
+}
+
+export interface GalleryItem {
+  id: number;
+  public_url: string;
+  original_name: string;
+  media_type: "image" | "video";
+  uploader: string;
+  caption: string;
+  source: "discord" | "web";
+  channel_name: string;
+  guild_id: string;
+  created_at: string;
 }

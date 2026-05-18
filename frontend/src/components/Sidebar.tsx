@@ -1,77 +1,159 @@
 import { NavLink } from "react-router-dom";
-import { Home, Search, ListMusic, Plus, Trash2 } from "lucide-react";
-import type { Playlist } from "../types";
+import { ListMusic, Images, Plus, Trash2 } from "lucide-react";
+import type { Guild, VoiceChannel, Playlist } from "../types";
+import iconUrl from "../assets/beggarclub_icon_light.svg?url";
+
+type Mode = "music" | "gallery";
 
 interface Props {
+  mode: Mode;
   playlists: Playlist[];
   onCreatePlaylist: () => void;
   onDeletePlaylist: (id: number) => void;
+  guilds: Guild[];
+  selectedGuild: Guild | null;
+  onSelectGuild: (guild: Guild) => void;
+  voiceChannels: VoiceChannel[];
+  selectedChannel: VoiceChannel | null;
+  onJoinChannel: (channel: VoiceChannel) => void;
 }
 
-export default function Sidebar({ playlists, onCreatePlaylist, onDeletePlaylist }: Props) {
-  const navClass = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-      isActive ? "bg-yt-elevated text-white" : "text-yt-muted hover:text-white hover:bg-yt-surface"
-    }`;
+export default function Sidebar({
+  mode,
+  playlists, onCreatePlaylist, onDeletePlaylist,
+  guilds, selectedGuild, onSelectGuild,
+  voiceChannels, selectedChannel, onJoinChannel,
+}: Props) {
+  const members = selectedChannel?.member_names ?? [];
 
   return (
-    <aside className="w-56 flex-shrink-0 bg-yt-bg flex flex-col border-r border-yt-border overflow-y-auto">
-      {/* Logo */}
-      <div className="px-4 py-4 flex items-center gap-2">
-        <span className="text-2xl">🎵</span>
-        <span className="font-bold text-base tracking-tight">Discord Music</span>
+    <aside className="w-60 flex-shrink-0 flex flex-col border-r border-yt-border overflow-y-auto" style={{ background: "#F7F8F9" }}>
+
+      {/* Icon — clicking goes home */}
+      <NavLink to="/" end className="flex justify-center pt-5 pb-2 focus:outline-none">
+        <img
+          src={iconUrl}
+          alt="BeggarClub"
+          className="select-none"
+            style={{ width: "200px", height: "200px" }}
+          draggable={false}
+        />
+      </NavLink>
+
+      {/* Server + Voice channel controls */}
+      <div className="px-3 space-y-2 mb-3">
+        {/* Server selector */}
+        <div>
+          <label className="text-[10px] font-semibold text-yt-muted uppercase tracking-widest px-1 mb-1 block">
+            Server
+          </label>
+          <select
+            value={selectedGuild?.id || ""}
+            onChange={(e) => {
+              const g = guilds.find((g) => g.id === e.target.value);
+              if (g) onSelectGuild(g);
+            }}
+            className="w-full bg-yt-surface text-yt-text text-sm border border-yt-border rounded-md px-2 py-1.5 outline-none focus:border-yt-muted cursor-pointer"
+          >
+            <option value="">Select server…</option>
+            {guilds.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Voice channel selector */}
+        {selectedGuild && (
+          <div>
+            <label className="text-[10px] font-semibold text-yt-muted uppercase tracking-widest px-1 mb-1 block">
+              Voice Channel
+            </label>
+            <select
+              value={selectedChannel?.id || ""}
+              onChange={(e) => {
+                const ch = voiceChannels.find((c) => c.id === e.target.value);
+                if (ch) onJoinChannel(ch);
+              }}
+              className={`w-full text-sm border rounded-md px-2 py-1.5 outline-none cursor-pointer ${
+                selectedChannel
+                  ? "bg-green-50 border-green-400 text-green-800"
+                  : "bg-red-50 border-red-400 text-red-700 animate-pulse"
+              }`}
+            >
+              <option value="">
+                {selectedChannel ? `🔊 ${selectedChannel.name}` : "⚠ Join a channel"}
+              </option>
+              {voiceChannels.map((ch) => (
+                <option key={ch.id} value={ch.id}>
+                  🔊 {ch.name}{ch.members > 0 ? ` (${ch.members})` : ""}
+                </option>
+              ))}
+            </select>
+
+            {/* Member status */}
+            {members.length > 0 && (
+              <p className="text-[11px] text-yt-muted mt-1 px-1 truncate" title={members.join(", ")}>
+                👥 {members.join(", ")}
+              </p>
+            )}
+
+          </div>
+        )}
       </div>
 
-      {/* Nav */}
-      <nav className="flex flex-col gap-1 px-2">
-        <NavLink to="/" end className={navClass}>
-          <Home size={18} />
-          Home
-        </NavLink>
-        <NavLink to="/search" className={navClass}>
-          <Search size={18} />
-          Search
-        </NavLink>
-      </nav>
+      {/* Divider */}
+      <div className="mx-3 border-t border-yt-border mb-3" />
 
-      {/* Library */}
-      <div className="mt-6 px-2">
-        <div className="flex items-center justify-between px-2 mb-2">
-          <span className="text-xs font-semibold text-yt-muted uppercase tracking-wider flex items-center gap-1.5">
-            <ListMusic size={14} /> Library
-          </span>
-          <button
-            onClick={onCreatePlaylist}
-            className="text-yt-muted hover:text-white transition-colors"
-            title="New playlist"
-          >
-            <Plus size={16} />
-          </button>
-        </div>
-
-        <div className="flex flex-col gap-0.5">
-          {playlists.length === 0 && (
-            <p className="text-xs text-yt-muted px-2 py-2">No playlists yet</p>
-          )}
-          {playlists.map((pl) => (
-            <div key={pl.id} className="group flex items-center gap-1 rounded-md hover:bg-yt-surface">
-              <NavLink
-                to={`/playlist/${pl.id}`}
-                className={({ isActive }) =>
-                  `flex-1 px-2 py-2 text-sm truncate ${isActive ? "text-white" : "text-yt-muted hover:text-white"}`
-                }
-              >
-                {pl.name}
-              </NavLink>
+      {/* Library / Gallery Library */}
+      <div className="px-2 flex-1">
+        {mode === "music" ? (
+          <>
+            <div className="flex items-center justify-between px-2 mb-2">
+              <span className="text-[10px] font-semibold text-yt-muted uppercase tracking-widest flex items-center gap-1.5">
+                <ListMusic size={12} /> Library
+              </span>
               <button
-                onClick={() => onDeletePlaylist(pl.id)}
-                className="pr-2 text-yt-muted opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+                onClick={onCreatePlaylist}
+                className="text-yt-muted hover:text-yt-text transition-colors"
+                title="New playlist"
               >
-                <Trash2 size={13} />
+                <Plus size={15} />
               </button>
             </div>
-          ))}
-        </div>
+            <div className="flex flex-col gap-0.5">
+              {playlists.length === 0 && (
+                <p className="text-xs text-yt-muted px-2 py-2">No playlists yet</p>
+              )}
+              {playlists.map((pl) => (
+                <div key={pl.id} className="group flex items-center gap-1 rounded-md hover:bg-yt-elevated">
+                  <NavLink
+                    to={`/playlist/${pl.id}`}
+                    className={({ isActive }) =>
+                      `flex-1 px-2 py-2 text-sm truncate ${isActive ? "text-yt-text font-medium" : "text-yt-muted hover:text-yt-text"}`
+                    }
+                  >
+                    {pl.name}
+                  </NavLink>
+                  <button
+                    onClick={() => onDeletePlaylist(pl.id)}
+                    className="pr-2 text-yt-muted opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center px-2 mb-2">
+              <span className="text-[10px] font-semibold text-yt-muted uppercase tracking-widest flex items-center gap-1.5">
+                <Images size={12} /> Gallery Library
+              </span>
+            </div>
+            <p className="text-xs text-yt-muted px-2 py-2">No albums yet</p>
+          </>
+        )}
       </div>
     </aside>
   );

@@ -3,6 +3,7 @@ import type { Track, Playlist, PlaylistDetail } from "../types";
 
 const WEB_SECRET = import.meta.env.VITE_WEB_SECRET || "changeme";
 
+
 const api = axios.create({
   baseURL: "/api",
   headers: { "x-secret": WEB_SECRET },
@@ -59,6 +60,13 @@ export const setVolume = (guild_id: string, volume: number) =>
 export const stopPlayer = (guild_id: string) =>
   api.post("/player/stop", { guild_id });
 
+export const seekTo = (guild_id: string, position: number) =>
+  api.post("/player/seek", { guild_id, position });
+
+export const getRecommendations = (guild_id: string) =>
+  api.get<{ recommendations: Track[] }>(`/player/recommendations/${guild_id}`)
+    .then((r) => r.data.recommendations);
+
 // Playlists
 export const getPlaylists = (guild_id: string) =>
   api.get<{ playlists: Playlist[] }>("/playlists", { params: { guild_id } }).then((r) => r.data.playlists);
@@ -80,3 +88,16 @@ export const removeSongFromPlaylist = (playlistId: number, songId: number) =>
 
 export const playPlaylist = (playlistId: number, guild_id: string, shuffle = false) =>
   api.post(`/playlists/${playlistId}/play`, { guild_id, shuffle });
+
+// Gallery
+export const getGalleryItems = (guild_id = "") =>
+  api.get<{ items: import("../types").GalleryItem[] }>("/gallery/items", { params: { guild_id } })
+    .then((r) => r.data.items);
+
+export const uploadGalleryItem = (formData: FormData) =>
+  api.post<import("../types").GalleryItem>("/gallery/upload", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  }).then((r) => r.data);
+
+export const deleteGalleryItem = (id: number) =>
+  api.delete(`/gallery/items/${id}`);

@@ -17,7 +17,7 @@ function formatDuration(secs: number) {
 
 export default function SongCard({ track, playlists, onPlay, onAddToQueue, onAddToPlaylist }: Props) {
   return (
-    <div className="group flex items-center gap-3 p-2 rounded-lg hover:bg-yt-surface transition-colors cursor-pointer">
+    <div className="group flex items-center gap-3 p-2 rounded-lg hover:bg-yt-elevated transition-colors cursor-pointer">
       {/* Thumbnail */}
       <div className="relative w-12 h-12 flex-shrink-0 rounded overflow-hidden bg-yt-elevated">
         {track.thumbnail ? (
@@ -27,7 +27,7 @@ export default function SongCard({ track, playlists, onPlay, onAddToQueue, onAdd
         )}
         <button
           onClick={() => onPlay(track)}
-          className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
         >
           <Play size={20} fill="white" className="text-white" />
         </button>
@@ -35,7 +35,7 @@ export default function SongCard({ track, playlists, onPlay, onAddToQueue, onAdd
 
       {/* Info */}
       <div className="flex-1 min-w-0" onClick={() => onPlay(track)}>
-        <p className="text-sm font-medium text-white truncate">{track.title}</p>
+        <p className="text-sm font-medium text-yt-text truncate">{track.title}</p>
         <p className="text-xs text-yt-muted truncate">{track.artist}</p>
       </div>
 
@@ -47,7 +47,7 @@ export default function SongCard({ track, playlists, onPlay, onAddToQueue, onAdd
         <button
           onClick={(e) => { e.stopPropagation(); onAddToQueue(track); }}
           title="Add to queue"
-          className="p-1.5 rounded-full hover:bg-yt-elevated text-yt-muted hover:text-white transition-colors"
+          className="p-1.5 rounded-full hover:bg-yt-surface text-yt-muted hover:text-yt-text transition-colors"
         >
           <Plus size={15} />
         </button>
@@ -56,17 +56,17 @@ export default function SongCard({ track, playlists, onPlay, onAddToQueue, onAdd
           <div className="relative group/pl">
             <button
               title="Add to playlist"
-              className="p-1.5 rounded-full hover:bg-yt-elevated text-yt-muted hover:text-white transition-colors"
+              className="p-1.5 rounded-full hover:bg-yt-surface text-yt-muted hover:text-yt-text transition-colors"
             >
               <ListPlus size={15} />
             </button>
             {/* Playlist dropdown */}
-            <div className="absolute right-0 top-full mt-1 w-40 bg-yt-elevated border border-yt-border rounded-lg shadow-xl z-50 hidden group-hover/pl:block">
+            <div className="absolute right-0 top-full mt-1 w-40 bg-yt-bg border border-yt-border rounded-lg shadow-lg z-50 hidden group-hover/pl:block">
               {playlists.map((pl) => (
                 <button
                   key={pl.id}
                   onClick={(e) => { e.stopPropagation(); onAddToPlaylist(track, pl.id); }}
-                  className="w-full text-left px-3 py-2 text-sm text-yt-muted hover:text-white hover:bg-yt-surface transition-colors rounded"
+                  className="w-full text-left px-3 py-2 text-sm text-yt-muted hover:text-yt-text hover:bg-yt-elevated transition-colors rounded"
                 >
                   {pl.name}
                 </button>

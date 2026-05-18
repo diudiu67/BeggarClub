@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
 
@@ -30,3 +30,19 @@ class PlaylistSong(Base):
     added_at = Column(DateTime, default=datetime.utcnow)
 
     playlist = relationship("Playlist", back_populates="songs")
+
+
+class GalleryItem(Base):
+    __tablename__ = "gallery_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    r2_key = Column(String, nullable=False)
+    public_url = Column(String, nullable=False)
+    original_name = Column(String, nullable=False)
+    media_type = Column(String, nullable=False)   # 'image' or 'video'
+    uploader = Column(String, nullable=False, default="")
+    caption = Column(String, default="")
+    source = Column(String, nullable=False, default="web")  # 'discord' or 'web'
+    channel_name = Column(String, default="")
+    guild_id = Column(String, default="", index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

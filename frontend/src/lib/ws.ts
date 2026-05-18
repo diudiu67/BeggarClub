@@ -14,7 +14,7 @@ class MusicWebSocket {
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const host = window.location.host;
-    this.ws = new WebSocket(`${protocol}://${host}/ws/${guildId}?secret=${secret}`);
+    this.ws = new WebSocket(`${protocol}://${host}/ws/${guildId}?secret=${encodeURIComponent(secret)}`);
 
     this.ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
