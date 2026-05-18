@@ -1,4 +1,5 @@
-import { Play, Plus, ListPlus } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Play, Plus, ListPlus, Check } from "lucide-react";
 import type { Track, Playlist } from "../types";
 
 interface Props {
@@ -16,6 +17,27 @@ function formatDuration(secs: number) {
 }
 
 export default function SongCard({ track, playlists, onPlay, onAddToQueue, onAddToPlaylist }: Props) {
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [added, setAdded] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node))
+        setShowDropdown(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleAddToPlaylist = (playlistId: number) => {
+    onAddToPlaylist(track, playlistId);
+    setShowDropdown(false);
+    setAdded(true);
+    setTimeout(() => setAdded(false), 2000);
+  };
+
   return (
     <div className="group flex items-center gap-3 p-2 rounded-lg hover:bg-yt-elevated transition-colors cursor-pointer">
       {/* Thumbnail */}
@@ -42,8 +64,9 @@ export default function SongCard({ track, playlists, onPlay, onAddToQueue, onAdd
       {/* Duration */}
       <span className="text-xs text-yt-muted flex-shrink-0">{formatDuration(track.duration)}</span>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Actions — always visible on mobile, hover-reveal on desktop */}
+      <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
+        {/* Add to queue */}
         <button
           onClick={(e) => { e.stopPropagation(); onAddToQueue(track); }}
           title="Add to queue"
@@ -52,26 +75,35 @@ export default function SongCard({ track, playlists, onPlay, onAddToQueue, onAdd
           <Plus size={15} />
         </button>
 
+        {/* Add to playlist */}
         {playlists.length > 0 && (
-          <div className="relative group/pl">
+          <div ref={dropdownRef} className="relative">
             <button
+              onClick={(e) => { e.stopPropagation(); setShowDropdown((v) => !v); }}
               title="Add to playlist"
-              className="p-1.5 rounded-full hover:bg-yt-surface text-yt-muted hover:text-yt-text transition-colors"
+              className={`p-1.5 rounded-full hover:bg-yt-surface transition-colors ${
+                added
+                  ? "text-green-500"
+                  : "text-yt-muted hover:text-yt-text"
+              }`}
             >
-              <ListPlus size={15} />
+              {added ? <Check size={15} /> : <ListPlus size={15} />}
             </button>
-            {/* Playlist dropdown */}
-            <div className="absolute right-0 top-full mt-1 w-40 bg-yt-bg border border-yt-border rounded-lg shadow-lg z-50 hidden group-hover/pl:block">
-              {playlists.map((pl) => (
-                <button
-                  key={pl.id}
-                  onClick={(e) => { e.stopPropagation(); onAddToPlaylist(track, pl.id); }}
-                  className="w-full text-left px-3 py-2 text-sm text-yt-muted hover:text-yt-text hover:bg-yt-elevated transition-colors rounded"
-                >
-                  {pl.name}
-                </button>
-              ))}
-            </div>
+
+            {showDropdown && (
+              <div className="absolute right-0 top-full mt-1 w-44 bg-yt-bg border border-yt-border rounded-lg shadow-xl z-50">
+                <p className="text-xs text-yt-muted px-3 py-2 border-b border-yt-border">Save to playlist</p>
+                {playlists.map((pl) => (
+                  <button
+                    key={pl.id}
+                    onClick={(e) => { e.stopPropagation(); handleAddToPlaylist(pl.id); }}
+                    className="w-full text-left px-3 py-2 text-sm text-yt-text hover:bg-yt-elevated transition-colors"
+                  >
+                    {pl.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

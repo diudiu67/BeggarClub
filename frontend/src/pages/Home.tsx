@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Music2, Plus, Play } from "lucide-react";
 import type { Playlist, Track } from "../types";
 import { searchTracks } from "../lib/api";
+import { getGradient } from "../lib/playlistTheme";
 
 interface Props {
   playlists: Playlist[];
@@ -55,6 +56,106 @@ const QUICK_PICK_QUERIES = [
   "BTS Stray Kids Tomorrow X Together official mv",
   "ado 優里 なとり official mv 2024",
 ];
+
+// ─── Query pools — a random subset is picked on every page load ───────────────
+
+const NEW_RELEASE_POOLS = [
+  // K-pop
+  "aespa 에스파 official mv 2025 new comeback single",
+  "NewJeans 뉴진스 official mv 2025 new release",
+  "IVE 아이브 official mv 2025 new comeback",
+  "LE SSERAFIM official mv 2025 new single",
+  "BLACKPINK ROSÉ LISA solo official mv 2025",
+  "BTS Jin Jungkook Jimin solo official mv 2025",
+  "Stray Kids new release official mv 2025",
+  "TWICE official mv 2025 comeback new song",
+  "ITZY NMIXX official mv 2025 new release",
+  "MAMAMOO Hwasa Wheein solo official mv 2025",
+  // J-pop
+  "YOASOBI new song official mv 2025",
+  "ado new release official mv 2025",
+  "米津玄師 Kenshi Yonezu new song official mv 2025",
+  "藤井風 Fujii Kaze new release official mv 2025",
+  "Official髭男dism new song official mv 2025",
+  "なとり優里 new release official mv 2025",
+  "ずっと真夜中でいいのに 新曲 official mv 2025",
+  "King Gnu new release official mv 2025",
+  // C-pop / Mandopop
+  "周杰伦 Jay Chou new song official mv 2025",
+  "邓紫棋 G.E.M. new release official mv 2025",
+  "薛之谦 new song official mv 2025",
+  "华晨宇 new release official mv 2025",
+  "陈奕迅 Eason Chan new song 2025",
+  "林俊杰 JJ Lin new release official mv 2025",
+  // English
+  "Taylor Swift new release official mv 2025",
+  "Sabrina Carpenter new song official video 2025",
+  "Billie Eilish new release official mv 2025",
+  "Olivia Rodrigo new song official mv 2025",
+  "Dua Lipa new release official music video 2025",
+  "Ariana Grande new release official mv 2025",
+];
+
+const TRENDING_POOLS = [
+  // K-pop trending
+  "kpop most streamed chart top hits 2024 trending",
+  "kpop girl group trending most played 2024 Billboard",
+  "kpop boy group trending most played 2024 chart",
+  "NewJeans aespa IVE trending most streamed 2024",
+  "BTS Stray Kids SEVENTEEN trending most played 2024",
+  "BLACKPINK TWICE MAMAMOO trending most played 2024",
+  // J-pop trending
+  "jpop trending Billboard Japan top chart 2024",
+  "jpop most streamed Spotify top 2024 popular",
+  "ado YOASOBI 米津玄師 藤井風 trending most played 2024",
+  "jpop 2024 most viewed YouTube trending hit songs",
+  "anime song trending most played 2024 popular",
+  // C-pop trending
+  "cpop mandopop trending most played 2024 chart",
+  "华语流行 trending 2024 most popular songs 排行榜",
+  "抖音热歌 2024 most played trending chart 华语",
+  "cantopop trending most played 2024 popular chart",
+  // Cross-genre
+  "Asian music trending worldwide most played 2024",
+  "kpop jpop cpop trending most streamed 2024",
+  "viral Asian music 2024 most viewed trending",
+  // English trending
+  "pop music trending chart most played 2024 hit songs",
+  "rnb soul trending most streamed 2024 popular",
+];
+
+const MV_POOLS = [
+  // K-pop MV
+  "kpop official music video 2024 most viewed YouTube",
+  "NewJeans aespa IVE official MV most viewed 2024",
+  "BLACKPINK official music video most viewed 2024",
+  "BTS official music video most viewed 2024 2025",
+  "Stray Kids TXT official MV most viewed 2024",
+  "TWICE LE SSERAFIM official MV most viewed 2024",
+  "IVE 아이브 ITZY official music video 2024 most viewed",
+  "SEVENTEEN official MV most viewed 2024",
+  // J-pop MV
+  "jpop official music video 2024 most viewed YouTube",
+  "YOASOBI official MV most viewed 2024 2025",
+  "ado official MV most viewed 2024 YouTube",
+  "米津玄師 Kenshi Yonezu official MV most viewed 2024",
+  "藤井風 official MV most viewed 2024",
+  "Official髭男dism King Gnu official MV most viewed 2024",
+  // C-pop MV
+  "周杰伦 official MV most viewed 2024 华语",
+  "邓紫棋 G.E.M. official MV most viewed 2024",
+  "华语流行 official MV most viewed 2024",
+  "cpop official music video most viewed 2024",
+  // English MV
+  "Taylor Swift Billie Eilish official MV most viewed 2024",
+  "Sabrina Carpenter Olivia Rodrigo official music video 2024",
+];
+
+/** Pick `n` distinct random items from an array */
+function pickRandom<T>(arr: T[], n: number): T[] {
+  const shuffled = [...arr].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, n);
+}
 
 const PLAYLIST_TITLE_FILTER = /\b(top\s*\d+|playlist|compilation|best of|greatest hits|collection|nonstop|mix|vol\.|part \d)/i;
 
@@ -187,24 +288,40 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
 
   useEffect(() => {
     const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    delay(500)
-      .then(() => searchTracks("aespa IVE NewJeans BLACKPINK official mv 2025 new single"))
-      .then((r) => setNewReleased(r.filter(isLikelySingleTrack).slice(0, 6)))
+
+    // New Released — 2 random queries merged, shuffled, dedupe
+    const [nq1, nq2] = pickRandom(NEW_RELEASE_POOLS, 2);
+    delay(400)
+      .then(() => Promise.all([searchTracks(nq1), searchTracks(nq2)]))
+      .then(([r1, r2]) => {
+        const merged = [...r1, ...r2]
+          .filter(isLikelySingleTrack)
+          .filter((t, i, arr) => arr.findIndex((x) => x.video_id === t.video_id) === i);
+        setNewReleased(merged.sort(() => Math.random() - 0.5).slice(0, 6));
+      })
       .catch(() => {});
-    delay(900)
-      .then(() => searchTracks("YOASOBI ado 米津玄師 Official MV 2024 2025 hit song"))
-      .then((r) => setTrending(r.filter(isLikelySingleTrack).slice(0, 6)))
+
+    // Trending — 2 different random queries merged & shuffled
+    const [tq1, tq2] = pickRandom(TRENDING_POOLS, 2);
+    delay(800)
+      .then(() => Promise.all([searchTracks(tq1), searchTracks(tq2)]))
+      .then(([r1, r2]) => {
+        const merged = [...r1, ...r2]
+          .filter(isLikelySingleTrack)
+          .filter((t, i, arr) => arr.findIndex((x) => x.video_id === t.video_id) === i);
+        setTrending(merged.sort(() => Math.random() - 0.5).slice(0, 6));
+      })
       .catch(() => {});
-    delay(1300)
-      .then(() => Promise.all([
-        searchTracks("aespa NewJeans IVE BLACKPINK official music video MV 2024 2025"),
-        searchTracks("周杰伦 YOASOBI 米津玄師 Taylor Swift official music video MV"),
-      ]))
+
+    // Music Videos for You — 2 different random MV queries, MV-filtered
+    const [mq1, mq2] = pickRandom(MV_POOLS, 2);
+    delay(1200)
+      .then(() => Promise.all([searchTracks(mq1), searchTracks(mq2)]))
       .then(([r1, r2]) => {
         const merged = [...r1, ...r2]
           .filter(isLikelyMV)
           .filter((t, i, arr) => arr.findIndex((x) => x.video_id === t.video_id) === i);
-        setMvForYou(merged.slice(0, 6));
+        setMvForYou(merged.sort(() => Math.random() - 0.5).slice(0, 6));
       })
       .catch(() => {});
   }, []);
@@ -240,8 +357,15 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
               onClick={() => navigate(`/playlist/${pl.id}`)}
               className="flex-shrink-0 w-40 text-left group"
             >
-              <div className="w-40 h-40 rounded-xl bg-yt-elevated flex items-center justify-center mb-2 group-hover:bg-yt-border transition-colors">
-                <Music2 size={36} className="text-yt-muted opacity-40" />
+              <div
+                className="w-40 h-40 rounded-xl flex items-center justify-center mb-2 text-4xl transition-opacity group-hover:opacity-80 overflow-hidden"
+                style={{ background: (pl.icon && (pl.icon.startsWith("/") || pl.icon.startsWith("http"))) ? undefined : getGradient(pl.color) }}
+              >
+                {pl.icon && (pl.icon.startsWith("/") || pl.icon.startsWith("http")) ? (
+                  <img src={pl.icon} alt={pl.name} className="w-full h-full object-cover" />
+                ) : (
+                  pl.icon || <Music2 size={36} className="text-white opacity-60" />
+                )}
               </div>
               <p className="text-sm font-semibold text-yt-text truncate">{pl.name}</p>
               <p className="text-xs text-yt-muted mt-0.5">Playlist</p>

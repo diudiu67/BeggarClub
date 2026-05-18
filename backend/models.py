@@ -11,6 +11,8 @@ class Playlist(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     guild_id = Column(String, nullable=False, index=True)
     name = Column(String, nullable=False)
+    icon = Column(String, default="🎵")
+    color = Column(String, default="red")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     songs = relationship("PlaylistSong", back_populates="playlist", cascade="all, delete-orphan", order_by="PlaylistSong.position")
