@@ -95,7 +95,7 @@ export default function PlaylistPage({ guildId, playlists, onRefresh }: Props) {
         </div>
         <div>
           <p className="text-xs text-yt-muted uppercase tracking-widest mb-1">Playlist</p>
-          <h1 className="text-3xl font-bold text-white mb-2">{playlist.name}</h1>
+          <h1 className="text-3xl font-bold text-yt-text mb-2">{playlist.name}</h1>
           <p className="text-sm text-yt-muted">
             {playlist.songs.length} songs · {formatDuration(totalDuration)}
           </p>
@@ -108,7 +108,7 @@ export default function PlaylistPage({ guildId, playlists, onRefresh }: Props) {
             </button>
             <button
               onClick={() => handlePlayAll(true)}
-              className="flex items-center gap-2 bg-yt-elevated hover:bg-yt-border text-white px-5 py-2 rounded-full text-sm font-semibold transition-colors"
+              className="flex items-center gap-2 bg-yt-elevated hover:bg-yt-border text-yt-text px-5 py-2 rounded-full text-sm font-semibold transition-colors"
             >
               <Shuffle size={16} /> Shuffle
             </button>
@@ -134,7 +134,7 @@ export default function PlaylistPage({ guildId, playlists, onRefresh }: Props) {
               />
               <button
                 onClick={() => handleRemoveSong(song.id)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-yt-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-yt-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
                 title="Remove from playlist"
               >
                 <Trash2 size={14} />

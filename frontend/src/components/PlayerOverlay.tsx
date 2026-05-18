@@ -1,17 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   X, Play, Pause, SkipBack, SkipForward,
-  Shuffle, Infinity, Volume2, Music2,
+  Shuffle, Radio, Volume2, Music2, Plus, Loader2,
+  ListPlus, Check, Home,
 } from "lucide-react";
-import type { PlayerState } from "../types";
+import type { PlayerState, Track, Playlist } from "../types";
 import {
   pausePlayer, resumePlayer, skipTrack, previousTrack,
-  shuffleQueue, toggleAutoplay, setVolume,
+  shuffleQueue, toggleAutoplay, setVolume, seekTo,
+  getRecommendations, playTrack, addToQueue, removeFromQueue,
+  addSongToPlaylist,
 } from "../lib/api";
 
 interface Props {
   state: PlayerState;
   guildId: string;
+  playlists: Playlist[];
   onClose: () => void;
   onRemoveFromQueue: (index: number) => void;
   onRefresh: () => void;
@@ -26,11 +31,41 @@ function fmt(secs: number) {
 }
 
 export default function PlayerOverlay({
-  state, guildId, onClose, onRemoveFromQueue, onRefresh,
+  state, guildId, playlists, onClose, onRemoveFromQueue, onRefresh,
 }: Props) {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>("upnext");
   const { current, queue, is_playing, is_paused, autoplay, shuffle, volume } = state;
   const [elapsed, setElapsed] = useState(0);
+  const [localVolume, setLocalVolume] = useState(Math.sqrt(volume));
+  const [seekDrag, setSeekDrag] = useState<number | null>(null);
+  const [related, setRelated] = useState<Track[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [showPlaylistMenu, setShowPlaylistMenu] = useState(false);
+  const [addedToPlaylist, setAddedToPlaylist] = useState<number | null>(null);
+  const playlistMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (playlistMenuRef.current && !playlistMenuRef.current.contains(e.target as Node))
+        setShowPlaylistMenu(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleAddToPlaylist = (playlistId: number) => {
+    if (!current) return;
+    addSongToPlaylist(playlistId, current)
+      .then(() => {
+        setAddedToPlaylist(playlistId);
+        setShowPlaylistMenu(false);
+        setTimeout(() => setAddedToPlaylist(null), 2000);
+      })
+      .catch(console.error);
+  };
+
+  useEffect(() => { setLocalVolume(Math.sqrt(volume)); }, [volume]);
 
   useEffect(() => {
     if (!current || !state.started_at) { setElapsed(0); return; }
@@ -42,23 +77,69 @@ export default function PlayerOverlay({
     return () => clearInterval(id);
   }, [current?.video_id, state.started_at, is_playing, is_paused]);
 
-  const progress = current ? Math.min((elapsed / current.duration) * 100, 100) : 0;
+  useEffect(() => {
+    if (tab !== "related" || !current) return;
+    setRelatedLoading(true);
+    getRecommendations(guildId)
+      .then(setRelated)
+      .catch(() => setRelated([]))
+      .finally(() => setRelatedLoading(false));
+  }, [tab, current?.video_id]);
+
+  const displayElapsed = seekDrag !== null
+    ? seekDrag
+    : current ? Math.min(elapsed, current.duration) : 0;
 
   const handle = (fn: () => Promise<unknown>) => () => fn().then(onRefresh).catch(console.error);
 
+  const handleSkip = () => skipTrack(guildId).catch(console.error);
+  const handlePrev = () => previousTrack(guildId).catch(console.error);
+
+  const handlePlayUpNext = (track: Track, index: number) => {
+    removeFromQueue(guildId, index)
+      .then(() => playTrack(guildId, track, true))
+      .then(onRefresh)
+      .catch(console.error);
+  };
+
   const handleVolume = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setVolume(guildId, parseFloat(e.target.value)).catch(console.error);
+    const v = parseFloat(e.target.value);
+    setLocalVolume(v);
+    setVolume(guildId, v * v).catch(console.error);
+  };
+
+  const handleSeekRelease = (e: React.MouseEvent<HTMLInputElement> | React.TouchEvent<HTMLInputElement>) => {
+    const pos = parseFloat((e.currentTarget as HTMLInputElement).value);
+    setSeekDrag(null);
+    seekTo(guildId, pos).catch(console.error);
+  };
+
+  const handlePlayRelated = (track: Track) => {
+    playTrack(guildId, track, true).then(onRefresh).catch(console.error);
+  };
+
+  const handleQueueRelated = (track: Track) => {
+    addToQueue(guildId, track).then(onRefresh).catch(console.error);
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-yt-bg flex flex-col" style={{ bottom: "5rem" }}>
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-yt-border flex-shrink-0">
-        <div className="flex gap-6 text-sm font-medium">
-          <button className="text-white border-b-2 border-white pb-1">Song</button>
-          <button className="text-yt-muted hover:text-white pb-1">Video</button>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => { onClose(); navigate("/"); }}
+            className="text-yt-muted hover:text-yt-text transition-colors"
+            title="Home"
+          >
+            <Home size={20} />
+          </button>
+          <div className="flex gap-6 text-sm font-medium">
+            <button className="text-yt-text border-b-2 border-yt-text pb-1">Song</button>
+            <button className="text-yt-muted hover:text-yt-text pb-1">Video</button>
+          </div>
         </div>
-        <button onClick={onClose} className="text-yt-muted hover:text-white transition-colors">
+        <button onClick={onClose} className="text-yt-muted hover:text-yt-text transition-colors">
           <X size={20} />
         </button>
       </div>
@@ -75,23 +156,57 @@ export default function PlayerOverlay({
                 className="w-72 h-72 rounded-2xl object-cover shadow-2xl bg-yt-elevated"
               />
               <div className="text-center">
-                <p className="text-xl font-bold text-white truncate max-w-xs">{current.title}</p>
+                <p className="text-xl font-bold text-yt-text truncate max-w-xs">{current.title}</p>
                 <p className="text-sm text-yt-muted mt-1">{current.artist}</p>
+                <div className="flex justify-center mt-3">
+                  <div ref={playlistMenuRef} className="relative">
+                    <button
+                      onClick={() => setShowPlaylistMenu((v) => !v)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        addedToPlaylist !== null
+                          ? "border-green-500 text-green-500"
+                          : "border-yt-border text-yt-muted hover:text-yt-text hover:border-yt-text"
+                      }`}
+                      title="Add to playlist"
+                    >
+                      {addedToPlaylist !== null ? (
+                        <><Check size={13} /> Added</>
+                      ) : (
+                        <><ListPlus size={13} /> Add to playlist</>
+                      )}
+                    </button>
+                    {showPlaylistMenu && (
+                      <div className="absolute z-20 left-1/2 -translate-x-1/2 bottom-full mb-2 bg-yt-bg border border-yt-border rounded-xl shadow-2xl py-1 min-w-48">
+                        <p className="text-xs text-yt-muted px-3 py-1.5 border-b border-yt-border">Save to playlist</p>
+                        {playlists.length === 0 ? (
+                          <p className="text-xs text-yt-muted px-3 py-3 text-center">No playlists yet</p>
+                        ) : (
+                          playlists.map((pl) => (
+                            <button
+                              key={pl.id}
+                              onClick={() => handleAddToPlaylist(pl.id)}
+                              className="w-full text-left px-3 py-2 text-sm text-yt-text hover:bg-yt-elevated transition-colors"
+                            >
+                              {pl.name}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Controls */}
               <div className="flex items-center gap-6">
                 <button
                   onClick={handle(() => shuffleQueue(guildId))}
-                  className={`transition-colors ${shuffle ? "text-yt-red" : "text-yt-muted hover:text-white"}`}
+                  className={`transition-colors ${shuffle ? "text-yt-red" : "text-yt-muted hover:text-yt-text"}`}
                   title="Shuffle"
                 >
                   <Shuffle size={20} />
                 </button>
-                <button
-                  onClick={handle(() => previousTrack(guildId))}
-                  className="text-yt-muted hover:text-white transition-colors"
-                >
+                <button onClick={handlePrev} className="text-yt-muted hover:text-yt-text transition-colors">
                   <SkipBack size={26} />
                 </button>
                 <button
@@ -100,35 +215,41 @@ export default function PlayerOverlay({
                       ? handle(() => resumePlayer(guildId))
                       : handle(() => pausePlayer(guildId))
                   }
-                  className="w-14 h-14 rounded-full bg-white flex items-center justify-center hover:bg-gray-200 transition-colors"
+                  className="w-14 h-14 rounded-full bg-gray-900 flex items-center justify-center hover:bg-gray-700 transition-colors"
                 >
                   {is_playing && !is_paused ? (
-                    <Pause size={24} fill="black" className="text-black" />
+                    <Pause size={24} fill="white" className="text-white" />
                   ) : (
-                    <Play size={24} fill="black" className="text-black ml-0.5" />
+                    <Play size={24} fill="white" className="text-white ml-0.5" />
                   )}
                 </button>
-                <button
-                  onClick={handle(() => skipTrack(guildId))}
-                  className="text-yt-muted hover:text-white transition-colors"
-                >
+                <button onClick={handleSkip} className="text-yt-muted hover:text-yt-text transition-colors">
                   <SkipForward size={26} />
                 </button>
                 <button
                   onClick={handle(() => toggleAutoplay(guildId))}
-                  className={`transition-colors ${autoplay ? "text-yt-red" : "text-yt-muted hover:text-white"}`}
+                  className={`transition-colors ${autoplay ? "text-yt-red" : "text-yt-muted hover:text-yt-text"}`}
                   title="Autoplay"
                 >
-                  <Infinity size={20} />
+                  <Radio size={20} />
                 </button>
               </div>
 
-              {/* Progress bar */}
+              {/* Seekable progress bar */}
               <div className="flex items-center gap-2 w-full max-w-xs">
-                <span className="text-xs text-yt-muted w-8 text-right">{fmt(Math.min(elapsed, current.duration))}</span>
-                <div className="flex-1 h-1 bg-yt-border rounded-full">
-                  <div className="h-full bg-yt-red rounded-full transition-all duration-1000" style={{ width: `${progress}%` }} />
-                </div>
+                <span className="text-xs text-yt-muted w-8 text-right">{fmt(displayElapsed)}</span>
+                <input
+                  type="range"
+                  min="0"
+                  max={current.duration}
+                  step="1"
+                  value={displayElapsed}
+                  onChange={(e) => setSeekDrag(parseFloat(e.target.value))}
+                  onMouseUp={handleSeekRelease}
+                  onTouchEnd={handleSeekRelease}
+                  className="flex-1 h-1 cursor-pointer"
+                  style={{ accentColor: "#ff0033" }}
+                />
                 <span className="text-xs text-yt-muted w-8">{fmt(current.duration)}</span>
               </div>
 
@@ -137,8 +258,10 @@ export default function PlayerOverlay({
                 <Volume2 size={16} className="text-yt-muted" />
                 <input
                   type="range" min="0" max="1" step="0.05"
-                  value={volume} onChange={handleVolume}
+                  value={localVolume}
+                  onChange={handleVolume}
                   className="w-28"
+                  style={{ accentColor: "#ff0033" }}
                 />
               </div>
             </>
@@ -150,7 +273,7 @@ export default function PlayerOverlay({
           )}
         </div>
 
-        {/* Right — queue panel */}
+        {/* Right — queue / related panel */}
         <div className="w-96 flex-shrink-0 border-l border-yt-border flex flex-col">
           {/* Tabs */}
           <div className="flex border-b border-yt-border flex-shrink-0">
@@ -160,8 +283,8 @@ export default function PlayerOverlay({
                 onClick={() => setTab(t)}
                 className={`flex-1 py-3 text-xs font-semibold uppercase tracking-wider transition-colors ${
                   tab === t
-                    ? "text-white border-b-2 border-white"
-                    : "text-yt-muted hover:text-white"
+                    ? "text-yt-text border-b-2 border-yt-text"
+                    : "text-yt-muted hover:text-yt-text"
                 }`}
               >
                 {t === "upnext" ? "Up Next" : t === "lyrics" ? "Lyrics" : "Related"}
@@ -179,21 +302,26 @@ export default function PlayerOverlay({
                   {queue.map((track, i) => (
                     <li
                       key={`${track.video_id}-${i}`}
-                      className="group flex items-center gap-3 p-2 rounded-lg hover:bg-yt-surface transition-colors"
+                      onClick={() => handlePlayUpNext(track, i)}
+                      className="group flex items-center gap-3 p-2 rounded-lg hover:bg-yt-elevated transition-colors cursor-pointer"
                     >
                       <img
-                        src={track.thumbnail}
+                        src={track.thumbnail || `https://i.ytimg.com/vi/${track.video_id}/mqdefault.jpg`}
                         alt=""
                         className="w-10 h-10 rounded object-cover flex-shrink-0 bg-yt-elevated"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src =
+                            `https://i.ytimg.com/vi/${track.video_id}/mqdefault.jpg`;
+                        }}
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-white truncate">{track.title}</p>
+                        <p className="text-sm font-medium text-yt-text truncate">{track.title}</p>
                         <p className="text-xs text-yt-muted truncate">{track.artist}</p>
                       </div>
                       <span className="text-xs text-yt-muted flex-shrink-0">{fmt(track.duration)}</span>
                       <button
-                        onClick={() => onRemoveFromQueue(i)}
-                        className="text-yt-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                        onClick={(e) => { e.stopPropagation(); onRemoveFromQueue(i); }}
+                        className="text-yt-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
                       >
                         <X size={13} />
                       </button>
@@ -210,9 +338,55 @@ export default function PlayerOverlay({
             )}
 
             {tab === "related" && (
-              <div className="flex items-center justify-center h-full text-yt-muted text-sm">
-                Related songs coming soon
-              </div>
+              relatedLoading ? (
+                <div className="flex items-center justify-center h-full gap-2 text-yt-muted text-sm">
+                  <Loader2 size={16} className="animate-spin" /> Loading...
+                </div>
+              ) : related.length === 0 ? (
+                <p className="text-sm text-yt-muted text-center mt-10 px-4">No related songs found</p>
+              ) : (
+                <ul className="p-3 space-y-1">
+                  {related.map((track, i) => (
+                    <li
+                      key={`${track.video_id}-${i}`}
+                      className="group flex items-center gap-3 p-2 rounded-lg hover:bg-yt-elevated transition-colors"
+                    >
+                      <img
+                        src={track.thumbnail || `https://i.ytimg.com/vi/${track.video_id}/mqdefault.jpg`}
+                        alt=""
+                        className="w-10 h-10 rounded object-cover flex-shrink-0 bg-yt-elevated"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src =
+                            `https://i.ytimg.com/vi/${track.video_id}/mqdefault.jpg`;
+                        }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-yt-text truncate">{track.title}</p>
+                        <p className="text-xs text-yt-muted truncate">{track.artist}</p>
+                      </div>
+                      {track.duration > 0 && (
+                        <span className="text-xs text-yt-muted flex-shrink-0">{fmt(track.duration)}</span>
+                      )}
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
+                        <button
+                          onClick={() => handlePlayRelated(track)}
+                          title="Play now"
+                          className="p-1 rounded text-yt-muted hover:text-yt-text transition-colors"
+                        >
+                          <Play size={13} fill="currentColor" />
+                        </button>
+                        <button
+                          onClick={() => handleQueueRelated(track)}
+                          title="Add to queue"
+                          className="p-1 rounded text-yt-muted hover:text-yt-text transition-colors"
+                        >
+                          <Plus size={13} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )
             )}
           </div>
         </div>

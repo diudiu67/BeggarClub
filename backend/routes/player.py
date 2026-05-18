@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from player import player_manager, Track
-from youtube import get_video_info, get_stream_url
+from youtube import get_video_info, get_stream_url, get_recommendations
 import bot as discord_bot
 import bot_runner
 
@@ -16,6 +16,7 @@ class PlayRequest(BaseModel):
     thumbnail: str
     duration: int
     play_now: bool = True
+    requested_by: str = ""
 
 
 class GuildRequest(BaseModel):
@@ -27,6 +28,11 @@ class VolumeRequest(BaseModel):
     volume: float
 
 
+class SeekRequest(BaseModel):
+    guild_id: str
+    position: float
+
+
 class QueueAddRequest(BaseModel):
     guild_id: str
     video_id: str
@@ -34,6 +40,7 @@ class QueueAddRequest(BaseModel):
     artist: str
     thumbnail: str
     duration: int
+    requested_by: str = ""
 
 
 @router.get("/state/{guild_id}")
@@ -62,6 +69,7 @@ async def play(req: PlayRequest):
 
     try:
         if req.play_now:
+            gp.queue.clear()  # Discard old queue so autoplay rebuilds around the new song
             gp.queue.insert(0, track)
             next_track = gp.pop_next()
             if next_track:
@@ -148,6 +156,21 @@ async def toggle_autoplay(req: GuildRequest):
 async def set_volume(req: VolumeRequest):
     await bot_runner.run(discord_bot.set_volume(req.guild_id, req.volume))
     return {"ok": True}
+
+
+@router.post("/seek")
+async def seek(req: SeekRequest):
+    await bot_runner.run(discord_bot.seek_to(req.guild_id, req.position))
+    return {"ok": True}
+
+
+@router.get("/recommendations/{guild_id}")
+async def recommendations(guild_id: str):
+    gp = player_manager.get(guild_id)
+    if not gp.current:
+        return {"recommendations": []}
+    recs = await get_recommendations(gp.current.video_id, max_results=50)
+    return {"recommendations": recs}
 
 
 @router.post("/stop")

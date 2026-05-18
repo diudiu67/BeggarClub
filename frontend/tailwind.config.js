@@ -5,12 +5,12 @@ export default {
     extend: {
       colors: {
         yt: {
-          bg: "#030303",
-          surface: "#212121",
-          elevated: "#2d2d2d",
-          border: "#3d3d3d",
-          text: "#ffffff",
-          muted: "#aaaaaa",
+          bg: "#F7F8F9",
+          surface: "#EEEEF0",
+          elevated: "#E3E3E7",
+          border: "#CECDD3",
+          text: "#1A1A1A",
+          muted: "#888888",
           red: "#ff0033",
         },
       },

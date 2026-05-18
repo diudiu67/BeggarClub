@@ -54,7 +54,7 @@ export default function SearchPage({ guildId, playlists, onRefresh }: Props) {
 
   return (
     <div className="p-6">
-      <h2 className="text-lg font-semibold text-white mb-4">
+      <h2 className="text-lg font-semibold text-yt-text mb-4">
         {query ? `Results for "${query}"` : "Search"}
       </h2>
 
@@ -64,7 +64,7 @@ export default function SearchPage({ guildId, playlists, onRefresh }: Props) {
         </div>
       )}
 
-      {error && <p className="text-red-400 text-sm">{error}</p>}
+      {error && <p className="text-red-500 text-sm">{error}</p>}
 
       {!loading && results.length === 0 && query && !error && (
         <p className="text-yt-muted text-sm">No results found.</p>

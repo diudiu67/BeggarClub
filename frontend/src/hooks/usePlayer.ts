@@ -16,9 +16,16 @@ export function usePlayer(guildId: string | null) {
     musicWS.connect(guildId, WEB_SECRET);
     const unsub = musicWS.subscribe((newState) => setState(newState));
 
+    // Polling fallback: if a WebSocket event is missed (skip/prev race condition),
+    // the poll catches up within 3 seconds.
+    const pollId = setInterval(() => {
+      getPlayerState(guildId).then(setState).catch(() => {});
+    }, 3000);
+
     return () => {
       unsub();
       musicWS.disconnect();
+      clearInterval(pollId);
     };
   }, [guildId]);
 

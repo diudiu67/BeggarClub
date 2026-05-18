@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import {
-  Play, Pause, SkipBack, SkipForward, Shuffle, Repeat,
+  Play, Pause, SkipBack, SkipForward, Shuffle,
   Volume2, ListMusic, Infinity,
 } from "lucide-react";
 import type { PlayerState } from "../types";
 import {
   pausePlayer, resumePlayer, skipTrack, previousTrack,
-  shuffleQueue, toggleAutoplay, setVolume,
+  shuffleQueue, toggleAutoplay, setVolume, seekTo,
 } from "../lib/api";
 
 interface Props {
@@ -17,7 +17,7 @@ interface Props {
   onRefresh: () => void;
 }
 
-function formatDuration(secs: number) {
+function fmt(secs: number) {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
@@ -26,6 +26,10 @@ function formatDuration(secs: number) {
 export default function NowPlaying({ state, guildId, onToggleQueue, onOpenPlayer, onRefresh }: Props) {
   const { current, is_playing, is_paused, autoplay, shuffle, volume } = state;
   const [elapsed, setElapsed] = useState(0);
+  const [localVolume, setLocalVolume] = useState(Math.sqrt(volume));
+  const [seekDrag, setSeekDrag] = useState<number | null>(null);
+
+  useEffect(() => { setLocalVolume(Math.sqrt(volume)); }, [volume]);
 
   useEffect(() => {
     if (!current || !state.started_at) { setElapsed(0); return; }
@@ -37,37 +41,60 @@ export default function NowPlaying({ state, guildId, onToggleQueue, onOpenPlayer
     return () => clearInterval(id);
   }, [current?.video_id, state.started_at, is_playing, is_paused]);
 
-  const progress = current ? Math.min((elapsed / current.duration) * 100, 100) : 0;
+  const displayElapsed = seekDrag !== null
+    ? seekDrag
+    : current ? Math.min(elapsed, current.duration) : 0;
 
   const handle = (fn: () => Promise<unknown>) => () => fn().then(onRefresh).catch(console.error);
 
+  const handleSkip = () => skipTrack(guildId)
+    .then(() => setTimeout(onRefresh, 300))
+    .catch(console.error);
+  const handlePrev = () => previousTrack(guildId)
+    .then(() => setTimeout(onRefresh, 300))
+    .catch(console.error);
+
   const handleVolume = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setVolume(guildId, parseFloat(e.target.value)).catch(console.error);
+    const v = parseFloat(e.target.value);
+    setLocalVolume(v);
+    setVolume(guildId, v * v).catch(console.error);
+  };
+
+  const handleSeekRelease = (e: React.MouseEvent<HTMLInputElement> | React.TouchEvent<HTMLInputElement>) => {
+    const pos = parseFloat((e.currentTarget as HTMLInputElement).value);
+    setSeekDrag(null);
+    seekTo(guildId, pos).catch(console.error);
   };
 
   return (
-    <div className="h-20 flex-shrink-0 bg-yt-surface border-t border-yt-border flex items-center px-4 gap-4">
+    <div
+      className="h-20 flex-shrink-0 bg-gray-900 border-t border-gray-700 flex items-center px-4 gap-4 cursor-pointer"
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("button, input")) return;
+        onOpenPlayer();
+      }}
+    >
       {/* Current track info */}
       <div className="flex items-center gap-3 w-64 flex-shrink-0">
         {current ? (
           <>
-            <button onClick={onOpenPlayer} className="flex-shrink-0 group relative" title="Open player">
+            <div className="flex-shrink-0 relative group">
               <img
                 src={current.thumbnail}
                 alt={current.title}
-                className="w-12 h-12 rounded object-cover bg-yt-elevated"
+                className="w-12 h-12 rounded object-cover bg-gray-800"
               />
-              <div className="absolute inset-0 bg-black/40 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <div className="absolute inset-0 bg-black/30 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                 <span className="text-white text-xs">▲</span>
               </div>
-            </button>
+            </div>
             <div className="min-w-0">
-              <p className="text-sm font-medium text-white truncate">{current.title}</p>
-              <p className="text-xs text-yt-muted truncate">{current.artist}</p>
+              <p className="text-sm font-medium text-gray-100 truncate">{current.title}</p>
+              <p className="text-xs text-gray-400 truncate">{current.artist}</p>
             </div>
           </>
         ) : (
-          <div className="w-12 h-12 rounded bg-yt-elevated flex-shrink-0 flex items-center justify-center text-yt-muted">
+          <div className="w-12 h-12 rounded bg-gray-800 flex-shrink-0 flex items-center justify-center text-gray-600">
             🎵
           </div>
         )}
@@ -76,24 +103,18 @@ export default function NowPlaying({ state, guildId, onToggleQueue, onOpenPlayer
       {/* Controls */}
       <div className="flex-1 flex flex-col items-center gap-1">
         <div className="flex items-center gap-4">
-          {/* Shuffle */}
           <button
             onClick={handle(() => shuffleQueue(guildId))}
-            className={`transition-colors ${shuffle ? "text-yt-red" : "text-yt-muted hover:text-white"}`}
+            className={`transition-colors ${shuffle ? "text-yellow-500" : "text-gray-500 hover:text-gray-200"}`}
             title="Shuffle"
           >
             <Shuffle size={18} />
           </button>
 
-          {/* Previous */}
-          <button
-            onClick={handle(() => previousTrack(guildId))}
-            className="text-yt-muted hover:text-white transition-colors"
-          >
+          <button onClick={handlePrev} className="text-gray-500 hover:text-gray-200 transition-colors">
             <SkipBack size={22} />
           </button>
 
-          {/* Play / Pause */}
           <button
             onClick={
               is_paused
@@ -109,18 +130,13 @@ export default function NowPlaying({ state, guildId, onToggleQueue, onOpenPlayer
             )}
           </button>
 
-          {/* Skip */}
-          <button
-            onClick={handle(() => skipTrack(guildId))}
-            className="text-yt-muted hover:text-white transition-colors"
-          >
+          <button onClick={handleSkip} className="text-gray-500 hover:text-gray-200 transition-colors">
             <SkipForward size={22} />
           </button>
 
-          {/* Autoplay */}
           <button
             onClick={handle(() => toggleAutoplay(guildId))}
-            className={`transition-colors ${autoplay ? "text-yt-red" : "text-yt-muted hover:text-white"}`}
+            className={`transition-colors ${autoplay ? "text-yellow-500" : "text-gray-500 hover:text-gray-200"}`}
             title={autoplay ? "Autoplay on" : "Autoplay off"}
           >
             <Infinity size={18} />
@@ -130,37 +146,45 @@ export default function NowPlaying({ state, guildId, onToggleQueue, onOpenPlayer
         {/* Progress bar */}
         {current && (
           <div className="flex items-center gap-2 w-full max-w-sm">
-            <span className="text-xs text-yt-muted w-8 text-right">{formatDuration(Math.min(elapsed, current.duration))}</span>
-            <div className="flex-1 h-1 bg-yt-border rounded-full">
-              <div className="h-full bg-yt-red rounded-full transition-all duration-1000" style={{ width: `${progress}%` }} />
-            </div>
-            <span className="text-xs text-yt-muted w-8">{formatDuration(current.duration)}</span>
+            <span className="text-xs text-gray-500 w-8 text-right">{fmt(displayElapsed)}</span>
+            <input
+              type="range"
+              min="0"
+              max={current.duration}
+              step="1"
+              value={displayElapsed}
+              onChange={(e) => setSeekDrag(parseFloat(e.target.value))}
+              onMouseUp={handleSeekRelease}
+              onTouchEnd={handleSeekRelease}
+              className="flex-1 h-1 cursor-pointer"
+              style={{ accentColor: "#D4A437" }}
+            />
+            <span className="text-xs text-gray-500 w-8">{fmt(current.duration)}</span>
           </div>
         )}
       </div>
 
       {/* Right controls */}
       <div className="flex items-center gap-3 w-48 justify-end flex-shrink-0">
-        {/* Queue toggle */}
         <button
           onClick={onToggleQueue}
-          className="text-yt-muted hover:text-white transition-colors"
+          className="text-gray-500 hover:text-gray-200 transition-colors"
           title="Queue"
         >
           <ListMusic size={18} />
         </button>
 
-        {/* Volume */}
         <div className="flex items-center gap-1.5">
-          <Volume2 size={16} className="text-yt-muted flex-shrink-0" />
+          <Volume2 size={16} className="text-gray-500 flex-shrink-0" />
           <input
             type="range"
             min="0"
             max="1"
             step="0.05"
-            value={volume}
+            value={localVolume}
             onChange={handleVolume}
             className="w-20"
+            style={{ accentColor: "#D4A437" }}
           />
         </div>
       </div>

@@ -2,14 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  background-color: #030303;
-  color: #ffffff;
+  background-color: #F7F8F9;
+  color: #1A1A1A;
   font-family: "YouTube Sans", "Roboto", sans-serif;
   overflow: hidden;
 }
@@ -21,11 +24,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3d3d3d;
+  background: #C5C5CB;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #AAAAB0;
 }
 
 input[type="range"] {
@@ -35,7 +38,7 @@ input[type="range"] {
   cursor: pointer;
 }
 input[type="range"]::-webkit-slider-runnable-track {
-  background: #3d3d3d;
+  background: #4B4B4B;
   height: 4px;
   border-radius: 2px;
 }
@@ -45,9 +48,9 @@ input[type="range"]::-webkit-slider-thumb {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #fff;
+  background: #D4A437;
   margin-top: -4px;
 }
 input[type="range"]:hover::-webkit-slider-runnable-track {
-  background: #ff0033;
+  background: #D4A437;
 }

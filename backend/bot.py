@@ -1,6 +1,7 @@
 import asyncio
 import glob
 import time
+import uuid
 import discord
 import discord.opus
 from discord.ext import commands
@@ -12,7 +13,15 @@ from config import settings
 def _load_opus():
     if discord.opus.is_loaded():
         return
-    # Try common names first (works on most systems)
+    # discord.py bundles libopus — try that first (works on all platforms)
+    try:
+        discord.opus._load_default()
+        if discord.opus.is_loaded():
+            print("[Bot] Opus loaded: discord bundled library")
+            return
+    except Exception:
+        pass
+    # Try common names (works on most Linux/Mac systems)
     for name in ["opus", "libopus", "libopus-0", "libopus.so.0"]:
         try:
             discord.opus.load_opus(name)
@@ -21,21 +30,6 @@ def _load_opus():
                 return
         except Exception:
             continue
-    # Windows: look for DLL in common locations
-    import sys
-    if sys.platform == "win32":
-        win_paths = [
-            r"C:\Windows\System32\opus.dll",
-            r"C:\Windows\System32\libopus-0.dll",
-        ]
-        for path in win_paths:
-            try:
-                discord.opus.load_opus(path)
-                if discord.opus.is_loaded():
-                    print(f"[Bot] Opus loaded from {path}")
-                    return
-            except Exception:
-                continue
     # Linux/Nix: search hash-based store paths
     for pattern in [
         "/nix/store/*/lib/libopus.so*",
@@ -66,6 +60,55 @@ FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
     "options": "-vn",
 }
+
+
+async def _save_gallery_item(item_data: dict):
+    """Run on FastAPI loop — saves a gallery item to the database."""
+    from database import AsyncSessionLocal
+    from models import GalleryItem
+    from datetime import datetime
+    async with AsyncSessionLocal() as db:
+        item = GalleryItem(**item_data, created_at=datetime.utcnow())
+        db.add(item)
+        await db.commit()
+
+
+@bot.event
+async def on_message(message: discord.Message):
+    channel_ids = settings.gallery_channel_ids
+    if not channel_ids or message.author.bot:
+        return
+    if message.channel.id not in channel_ids:
+        return
+
+    for attachment in message.attachments:
+        ct = attachment.content_type or ""
+        if not (ct.startswith("image/") or ct.startswith("video/")):
+            continue
+        try:
+            data = await attachment.read()
+            ext = attachment.filename.rsplit(".", 1)[-1] if "." in attachment.filename else "bin"
+            key = f"{uuid.uuid4().hex}.{ext}"
+
+            from r2 import upload_to_r2
+            public_url = await upload_to_r2(key, data, ct)
+
+            item_data = {
+                "r2_key": key,
+                "public_url": public_url,
+                "original_name": attachment.filename,
+                "media_type": "image" if ct.startswith("image/") else "video",
+                "uploader": message.author.display_name,
+                "caption": message.content or "",
+                "source": "discord",
+                "channel_name": getattr(message.channel, "name", ""),
+                "guild_id": str(message.guild.id) if message.guild else "",
+            }
+            import bot_runner
+            bot_runner.fire_in_fastapi(_save_gallery_item(item_data))
+            print(f"[Gallery] Saved {attachment.filename} from {message.author.display_name}")
+        except Exception as e:
+            print(f"[Gallery] Failed to process attachment: {e}")
 
 
 @bot.event
@@ -107,10 +150,21 @@ async def play_track(guild_id: str, track: Track):
         return
 
     if not track.stream_url:
-        track.stream_url = await get_stream_url(track.video_id)
+        track.stream_url, _ = await get_stream_url(track.video_id)
+
+    # When called directly (not via _on_song_end), save the outgoing track to history.
+    # _on_song_end clears gp.current before calling us, so this only fires on manual plays.
+    if gp.current and gp.current.video_id != track.video_id:
+        gp.history.append(gp.current)
+        if len(gp.history) > 50:
+            gp.history.pop(0)
+
+    # Increment generation BEFORE stop() so the old after_play sees a mismatched
+    # generation and won't fire _on_song_end while we're setting up the new track.
+    gp._play_generation += 1
+    gen = gp._play_generation
 
     if gp.voice_client.is_playing() or gp.voice_client.is_paused():
-        gp._suppress_on_song_end = True
         gp.voice_client.stop()
 
     gp.current = track
@@ -123,62 +177,189 @@ async def play_track(guild_id: str, track: Track):
     def after_play(error):
         if error:
             print(f"[Bot] Playback error: {error}")
+        if gp._play_generation != gen:
+            return
         import bot_runner
         asyncio.run_coroutine_threadsafe(_on_song_end(guild_id), bot_runner.get_bot_loop())
 
     gp.voice_client.play(source, after=after_play)
     await gp.broadcast("now_playing")
 
-    # Pre-fetch recommendations into queue so Up Next is populated immediately
-    if gp.autoplay and len(gp.queue) == 0:
+    # Keep Up Next topped up: refill whenever queue drops below 10
+    if gp.autoplay and len(gp.queue) < 10:
         asyncio.create_task(_prefetch_recs(guild_id))
+
+
+async def _prefetch_next_stream(guild_id: str):
+    """Pre-fetch stream URL for the next queued track so skip is near-instant."""
+    gp = player_manager.get(guild_id)
+    if gp.queue and not gp.queue[0].stream_url:
+        try:
+            gp.queue[0].stream_url, _ = await get_stream_url(gp.queue[0].video_id)
+        except Exception:
+            pass
+
+
+async def seek_to(guild_id: str, position: float):
+    gp = player_manager.get(guild_id)
+    if not gp.voice_client or not gp.current:
+        return
+
+    track = gp.current
+    duration = track.duration or 1
+
+    # Try to get a fresh URL; fall back to the cached one if yt-dlp fails.
+    try:
+        print(f"[Seek] Fetching fresh URL for {track.video_id} (pos={int(position)}s, duration={duration}s)")
+        stream_url, filesize = await get_stream_url(track.video_id)
+        has_range_param = "&range=" in stream_url
+        print(f"[Seek] Got URL (has_range_param={has_range_param}, filesize={filesize}): {stream_url[:120]}...")
+        # If the URL has a range= parameter (YouTube DASH), rewrite it to the correct byte offset.
+        if has_range_param and filesize > 0:
+            byte_offset = int(position / duration * filesize)
+            import re as _re
+            stream_url = _re.sub(r'[&?]range=\d+-\d*', lambda m: m.group(0)[0] + f"range={byte_offset}-", stream_url)
+            print(f"[Seek] Rewrote URL range param → byte_offset={byte_offset}")
+        track.stream_url = stream_url
+    except Exception as e:
+        print(f"[Seek] Failed to fetch fresh URL ({e}), using cached URL")
+        if not track.stream_url:
+            return
+
+    # Increment generation BEFORE stop() so the old after_play sees a mismatched
+    # generation and won't fire _on_song_end while we're setting up the seek source.
+    gp._play_generation += 1
+    gen = gp._play_generation
+
+    if gp.voice_client.is_playing() or gp.voice_client.is_paused():
+        gp.voice_client.stop()
+
+    gp.is_paused = False
+
+    def make_after_play(g, label):
+        def after_play(error):
+            if error:
+                print(f"[Bot] after_play error ({label}): {error}", flush=True)
+            else:
+                print(f"[Bot] after_play OK ({label}), gen={gp._play_generation} expected={g} match={gp._play_generation == g}", flush=True)
+            if gp._play_generation != g:
+                return
+            import bot_runner
+            asyncio.run_coroutine_threadsafe(_on_song_end(guild_id), bot_runner.get_bot_loop())
+        return after_play
+
+    if position > 0:
+        seek_opts = {
+            # No -reconnect_streamed: that flag marks streams as non-seekable,
+            # which makes -ss fall back to decoding from position 0.
+            "before_options": (
+                f"-reconnect 1 -reconnect_delay_max 5"
+                f" -ss {int(position)}"
+            ),
+            "options": "-vn",
+        }
+        print(f"[Seek] Starting FFmpegPCMAudio with -ss {int(position)} (no reconnect_streamed)")
+        source = discord.FFmpegPCMAudio(track.stream_url, **seek_opts)
+        source = discord.PCMVolumeTransformer(source, volume=gp.volume)
+        gp.voice_client.play(source, after=make_after_play(gen, f"seek@{int(position)}"))
+        gp.started_at = time.time() - position
+        print(f"[Seek] voice_client.play() called, is_playing={gp.voice_client.is_playing()}")
+    else:
+        source = discord.FFmpegPCMAudio(track.stream_url, **FFMPEG_OPTIONS)
+        source = discord.PCMVolumeTransformer(source, volume=gp.volume)
+        gp.voice_client.play(source, after=make_after_play(gen, "seek@0"))
+        gp.started_at = time.time()
+
+    await gp.broadcast("now_playing")
+
+    # If the seek produced no audio within 2 s (stream doesn't support range seeking),
+    # fall back to restarting the track from the beginning.
+    if position > 0:
+        asyncio.create_task(_verify_seek(guild_id, gen, track))
+
+
+async def _verify_seek(guild_id: str, gen: int, track: Track):
+    """After 2 s, check if seek produced audio. If not, restart from beginning."""
+    await asyncio.sleep(2.0)
+    gp = player_manager.get(guild_id)
+    if gp._play_generation != gen:
+        return  # State already moved on
+    if gp.voice_client and not gp.voice_client.is_playing():
+        print("[Bot] Seek produced no audio — restarting from beginning")
+        gp._play_generation += 1
+        new_gen = gp._play_generation
+        source = discord.FFmpegPCMAudio(track.stream_url, **FFMPEG_OPTIONS)
+        source = discord.PCMVolumeTransformer(source, volume=gp.volume)
+
+        def after_play(error):
+            if error:
+                print(f"[Bot] Playback error: {error}")
+            if gp._play_generation != new_gen:
+                return
+            import bot_runner
+            asyncio.run_coroutine_threadsafe(_on_song_end(guild_id), bot_runner.get_bot_loop())
+
+        gp.voice_client.play(source, after=after_play)
+        gp.started_at = time.time()
+        await gp.broadcast("now_playing")
 
 
 async def _prefetch_recs(guild_id: str):
     gp = player_manager.get(guild_id)
     if not gp.current or not gp.autoplay:
         return
-    seed_id = gp.current.video_id
-    try:
-        recs = await get_recommendations(seed_id, max_results=5)
-    except Exception:
+    if gp._prefetching_recs:
         return
-    added = False
-    for rec in recs:
-        vid = rec.get("video_id", "")
-        if not vid:
-            continue
-        if (not any(t.video_id == vid for t in gp.history[-10:]) and
-                not any(t.video_id == vid for t in gp.queue) and
-                gp.current.video_id != vid):
-            new_track = Track(**{k: rec[k] for k in Track.__dataclass_fields__ if k in rec})
-            gp.queue.append(new_track)
-            added = True
-    if added:
-        await gp.broadcast("queue_updated")
+    gp._prefetching_recs = True
+    try:
+        seed_id = gp.current.video_id
+        recs = await get_recommendations(seed_id, max_results=50)
+        added = False
+        for rec in recs:
+            vid = rec.get("video_id", "")
+            if not vid:
+                continue
+            if (not any(t.video_id == vid for t in gp.history[-10:]) and
+                    not any(t.video_id == vid for t in gp.queue) and
+                    (not gp.current or gp.current.video_id != vid)):
+                new_track = Track(**{k: rec[k] for k in Track.__dataclass_fields__ if k in rec})
+                gp.queue.append(new_track)
+                added = True
+        if added:
+            await gp.broadcast("queue_updated")
+            asyncio.create_task(_prefetch_next_stream(guild_id))
+    except Exception:
+        pass
+    finally:
+        gp._prefetching_recs = False
 
 
 async def _on_song_end(guild_id: str):
     gp = player_manager.get(guild_id)
+    current_title = gp.current.title[:30] if gp.current else "None"
+    print(f"[SongEnd] Running, current={current_title}, queue_len={len(gp.queue)}", flush=True)
 
-    # Suppress if play_track manually interrupted this song
-    if gp._suppress_on_song_end:
-        gp._suppress_on_song_end = False
-        return
-
-    if gp.current:
-        gp.history.append(gp.current)
+    old_track = gp.current
+    if old_track:
+        gp.history.append(old_track)
         if len(gp.history) > 50:
             gp.history.pop(0)
+
+    # Clear current BEFORE calling play_track so it won't double-add to history
+    gp.current = None
 
     next_track = gp.pop_next()
 
     if next_track:
-        await play_track(guild_id, next_track)
-    elif gp.autoplay and gp.current:
-        # Fetch recommendations based on last played song
-        seed_id = gp.current.video_id
-        recs = await get_recommendations(seed_id, max_results=5)
+        try:
+            await play_track(guild_id, next_track)
+        except Exception as e:
+            print(f"[Bot] Error playing next track: {e}")
+            await gp.broadcast("stopped")
+    elif gp.autoplay and old_track:
+        # Queue empty — fetch fresh recommendations to continue
+        seed_id = old_track.video_id
+        recs = await get_recommendations(seed_id, max_results=50)
         for rec in recs:
             if not any(t.video_id == rec["video_id"] for t in gp.history[-10:]):
                 new_track = Track(**{k: rec[k] for k in Track.__dataclass_fields__ if k in rec})
@@ -187,10 +368,8 @@ async def _on_song_end(guild_id: str):
         if next_track:
             await play_track(guild_id, next_track)
         else:
-            gp.current = None
             await gp.broadcast("stopped")
     else:
-        gp.current = None
         await gp.broadcast("stopped")
 
 
@@ -265,8 +444,20 @@ async def resume(guild_id: str):
 
 async def skip(guild_id: str):
     gp = player_manager.get(guild_id)
-    if gp.voice_client and (gp.voice_client.is_playing() or gp.voice_client.is_paused()):
-        gp.voice_client.stop()  # triggers after_play -> _on_song_end
+    if not gp.voice_client:
+        print(f"[Skip] No voice client", flush=True)
+        return
+    playing = gp.voice_client.is_playing()
+    paused = gp.voice_client.is_paused()
+    connected = gp.voice_client.is_connected()
+    current_title = gp.current.title[:30] if gp.current else "None"
+    print(f"[Skip] is_playing={playing} is_paused={paused} connected={connected} current={current_title}", flush=True)
+    if playing or paused:
+        gp.voice_client.stop()
+        print(f"[Skip] Called stop()", flush=True)
+    elif gp.current:
+        print(f"[Skip] Creating _on_song_end task (broken state)", flush=True)
+        asyncio.create_task(_on_song_end(guild_id))
 
 
 async def previous(guild_id: str):
@@ -300,7 +491,12 @@ async def get_voice_channels_async(guild_id: str) -> list[dict]:
     if not guild:
         return []
     return [
-        {"id": str(ch.id), "name": ch.name, "members": len(ch.members)}
+        {
+            "id": str(ch.id),
+            "name": ch.name,
+            "members": len(ch.members),
+            "member_names": [m.display_name for m in ch.members if not m.bot],
+        }
         for ch in guild.voice_channels
     ]
 
