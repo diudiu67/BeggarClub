@@ -32,7 +32,7 @@ Start-Sleep -Seconds 12
 # ── 2. Start Cloudflare tunnel (hidden) ──────────────────────────────────────
 if (Test-Path $logFile) { Remove-Item $logFile -Force }
 Start-Process -FilePath $cloudflared `
-    -ArgumentList "tunnel --url http://localhost:8080" `
+    -ArgumentList "tunnel --url http://localhost:8080 --protocol http2" `
     -RedirectStandardError $logFile `
     -WindowStyle Hidden
 

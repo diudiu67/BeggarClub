@@ -183,7 +183,25 @@ async def on_ready():
             name=url,
         ),
     )
+
+    # Save any active voice sessions before clearing — on_ready can fire on
+    # reconnect (fresh IDENTIFY), not just on first startup.
+    saved: dict[str, dict] = {}
+    for guild in bot.guilds:
+        gp = player_manager.get(str(guild.id))
+        # If we remember a channel and had something playing, plan to rejoin
+        if gp.last_voice_channel_id and gp.current:
+            saved[str(guild.id)] = {
+                "channel_id": gp.last_voice_channel_id,
+                "current": gp.current,
+                "started_at": gp.started_at,
+            }
+            _vlog.info(f"  on_ready: will rejoin guild={guild.id} channel={gp.last_voice_channel_id} track={gp.current.title[:40]}")
+
     await _clear_all_voice()
+
+    for guild_id, state in saved.items():
+        asyncio.create_task(_rejoin_and_resume(guild_id, state["channel_id"], state["current"], state["started_at"]))
 
 
 @bot.event
