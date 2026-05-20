@@ -22,3 +22,19 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
+watchdog.log
+
+# Sensitive credentials / tokens
+R2.txt
+youtube_cookies.txt
+
+# Uploaded user content (runtime-generated)
+backend/playlist_icons/
+
+# Large build artifacts
+ffmpeg-*/
+*.7z
+files.zip
