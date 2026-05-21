@@ -82,3 +82,15 @@ if ($tunnelUrl -and $GITHUB_TOKEN) {
             -Method Put -Headers $ghHeaders -Body $body | Out-Null
     } catch { }
 }
+
+# ── 4. Start watchdog loop (hidden background process) ───────────────────────
+# Kills any previous watchdog loop, then starts a new one.
+# Watchdog runs every 5 min: checks uvicorn, cloudflared, disk, cookies, etc.
+Get-Process -Name "powershell" -ErrorAction SilentlyContinue | Where-Object {
+    try { (Get-WmiObject Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine -match "watchdog-loop" } catch { $false }
+} | Stop-Process -Force -ErrorAction SilentlyContinue
+
+$watchdogLoop = Join-Path $PSScriptRoot "watchdog-loop.ps1"
+Start-Process -FilePath "powershell.exe" `
+    -ArgumentList "-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watchdogLoop`"" `
+    -WindowStyle Hidden
