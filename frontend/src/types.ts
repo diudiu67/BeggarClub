@@ -4,6 +4,8 @@ export interface Track {
   artist: string;
   thumbnail: string;
   duration: number;
+  view_count?: number;
+  album?: string;
 }
 
 export interface Playlist {

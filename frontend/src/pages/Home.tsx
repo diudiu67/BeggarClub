@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Music2, Plus, Play } from "lucide-react";
+import { ChevronLeft, ChevronRight, Music2, Play, Plus } from "lucide-react";
 import type { Playlist, Track } from "../types";
-import { searchTracks } from "../lib/api";
+import { getPlayHistory, searchTracks } from "../lib/api";
 import { getGradient } from "../lib/playlistTheme";
 
 interface Props {
@@ -12,6 +12,7 @@ interface Props {
   onPlayTrack: (track: Track) => void;
 }
 
+// ─── Mood chips ───────────────────────────────────────────────────────────────
 const MOODS = [
   { label: "Relax", query: "relaxing chinese mandarin music" },
   { label: "Sad", query: "sad emotional chinese japanese songs" },
@@ -25,27 +26,25 @@ const MOODS = [
   { label: "Nostalgic", query: "classic chinese cantopop 90s" },
 ];
 
+// ─── Genres — each has a display label and search query ──────────────────────
 const GENRES = [
-  // Chinese
-  { label: "Mandopop", query: "mandarin pop music hits 华语流行", color: "from-red-500 to-rose-800" },
-  { label: "Cantopop", query: "cantonese pop music 粤语歌曲", color: "from-orange-500 to-red-800" },
-  { label: "C-Drama OST", query: "chinese drama ost soundtrack 华剧主题曲", color: "from-pink-500 to-fuchsia-800" },
-  { label: "Chinese Indie", query: "chinese indie folk music 华语独立", color: "from-rose-400 to-pink-800" },
-  // Japanese
-  { label: "J-Pop", query: "jpop music hits 日本流行音楽", color: "from-violet-500 to-purple-800" },
-  { label: "Anime OST", query: "anime opening ending songs soundtrack", color: "from-indigo-500 to-violet-800" },
-  { label: "City Pop", query: "japanese city pop 80s シティポップ", color: "from-blue-400 to-indigo-700" },
-  { label: "J-Rock", query: "japanese rock music visual kei", color: "from-slate-500 to-gray-900" },
-  // Korean
-  { label: "K-Pop", query: "kpop music hits 2024 케이팝", color: "from-sky-400 to-blue-700" },
-  { label: "K-R&B", query: "korean rnb soul music 한국 알앤비", color: "from-cyan-500 to-teal-800" },
-  { label: "K-Drama OST", query: "korean drama ost 드라마 주제곡", color: "from-teal-400 to-cyan-800" },
-  // English
-  { label: "Pop", query: "english pop music hits 2024", color: "from-amber-400 to-orange-700" },
-  { label: "R&B", query: "rnb soul music english hits", color: "from-yellow-500 to-amber-800" },
-  { label: "Hip-Hop", query: "hip hop rap english music", color: "from-zinc-500 to-zinc-900" },
+  { label: "Mandopop",     query: "mandarin pop music hits 华语流行" },
+  { label: "Cantopop",     query: "cantonese pop music 粤语歌曲" },
+  { label: "C-Drama OST",  query: "chinese drama ost soundtrack 华剧主题曲" },
+  { label: "Chinese Indie",query: "chinese indie folk music 华语独立" },
+  { label: "J-Pop",        query: "jpop music hits 日本流行音楽" },
+  { label: "Anime OST",    query: "anime opening ending songs soundtrack" },
+  { label: "City Pop",     query: "japanese city pop 80s シティポップ" },
+  { label: "J-Rock",       query: "japanese rock music visual kei" },
+  { label: "K-Pop",        query: "kpop music hits 2024 케이팝" },
+  { label: "K-R&B",        query: "korean rnb soul music 한국 알앤비" },
+  { label: "K-Drama OST",  query: "korean drama ost 드라마 주제곡" },
+  { label: "Pop",          query: "english pop music hits 2024" },
+  { label: "R&B",          query: "rnb soul music english hits" },
+  { label: "Hip-Hop",      query: "hip hop rap english music" },
 ];
 
+// ─── Quick picks fallback pools ───────────────────────────────────────────────
 const QUICK_PICK_QUERIES = [
   "周杰伦 陈奕迅 林俊杰 歌曲 MV",
   "华语流行 抖音热歌 2024 单曲",
@@ -57,10 +56,7 @@ const QUICK_PICK_QUERIES = [
   "ado 優里 なとり official mv 2024",
 ];
 
-// ─── Query pools — a random subset is picked on every page load ───────────────
-
 const NEW_RELEASE_POOLS = [
-  // K-pop
   "aespa 에스파 official mv 2025 new comeback single",
   "NewJeans 뉴진스 official mv 2025 new release",
   "IVE 아이브 official mv 2025 new comeback",
@@ -69,97 +65,59 @@ const NEW_RELEASE_POOLS = [
   "BTS Jin Jungkook Jimin solo official mv 2025",
   "Stray Kids new release official mv 2025",
   "TWICE official mv 2025 comeback new song",
-  "ITZY NMIXX official mv 2025 new release",
-  "MAMAMOO Hwasa Wheein solo official mv 2025",
-  // J-pop
   "YOASOBI new song official mv 2025",
   "ado new release official mv 2025",
   "米津玄師 Kenshi Yonezu new song official mv 2025",
   "藤井風 Fujii Kaze new release official mv 2025",
-  "Official髭男dism new song official mv 2025",
-  "なとり優里 new release official mv 2025",
-  "ずっと真夜中でいいのに 新曲 official mv 2025",
-  "King Gnu new release official mv 2025",
-  // C-pop / Mandopop
   "周杰伦 Jay Chou new song official mv 2025",
   "邓紫棋 G.E.M. new release official mv 2025",
-  "薛之谦 new song official mv 2025",
-  "华晨宇 new release official mv 2025",
-  "陈奕迅 Eason Chan new song 2025",
-  "林俊杰 JJ Lin new release official mv 2025",
-  // English
   "Taylor Swift new release official mv 2025",
   "Sabrina Carpenter new song official video 2025",
   "Billie Eilish new release official mv 2025",
   "Olivia Rodrigo new song official mv 2025",
-  "Dua Lipa new release official music video 2025",
-  "Ariana Grande new release official mv 2025",
 ];
 
 const TRENDING_POOLS = [
-  // K-pop trending
   "kpop most streamed chart top hits 2024 trending",
-  "kpop girl group trending most played 2024 Billboard",
-  "kpop boy group trending most played 2024 chart",
   "NewJeans aespa IVE trending most streamed 2024",
   "BTS Stray Kids SEVENTEEN trending most played 2024",
   "BLACKPINK TWICE MAMAMOO trending most played 2024",
-  // J-pop trending
   "jpop trending Billboard Japan top chart 2024",
-  "jpop most streamed Spotify top 2024 popular",
   "ado YOASOBI 米津玄師 藤井風 trending most played 2024",
-  "jpop 2024 most viewed YouTube trending hit songs",
-  "anime song trending most played 2024 popular",
-  // C-pop trending
   "cpop mandopop trending most played 2024 chart",
   "华语流行 trending 2024 most popular songs 排行榜",
   "抖音热歌 2024 most played trending chart 华语",
-  "cantopop trending most played 2024 popular chart",
-  // Cross-genre
-  "Asian music trending worldwide most played 2024",
-  "kpop jpop cpop trending most streamed 2024",
-  "viral Asian music 2024 most viewed trending",
-  // English trending
   "pop music trending chart most played 2024 hit songs",
-  "rnb soul trending most streamed 2024 popular",
 ];
 
 const MV_POOLS = [
-  // K-pop MV
   "kpop official music video 2024 most viewed YouTube",
   "NewJeans aespa IVE official MV most viewed 2024",
   "BLACKPINK official music video most viewed 2024",
   "BTS official music video most viewed 2024 2025",
-  "Stray Kids TXT official MV most viewed 2024",
-  "TWICE LE SSERAFIM official MV most viewed 2024",
-  "IVE 아이브 ITZY official music video 2024 most viewed",
-  "SEVENTEEN official MV most viewed 2024",
-  // J-pop MV
   "jpop official music video 2024 most viewed YouTube",
   "YOASOBI official MV most viewed 2024 2025",
   "ado official MV most viewed 2024 YouTube",
   "米津玄師 Kenshi Yonezu official MV most viewed 2024",
-  "藤井風 official MV most viewed 2024",
-  "Official髭男dism King Gnu official MV most viewed 2024",
-  // C-pop MV
   "周杰伦 official MV most viewed 2024 华语",
-  "邓紫棋 G.E.M. official MV most viewed 2024",
-  "华语流行 official MV most viewed 2024",
-  "cpop official music video most viewed 2024",
-  // English MV
   "Taylor Swift Billie Eilish official MV most viewed 2024",
   "Sabrina Carpenter Olivia Rodrigo official music video 2024",
 ];
 
-/** Pick `n` distinct random items from an array */
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function pickRandom<T>(arr: T[], n: number): T[] {
-  const shuffled = [...arr].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, n);
+  return [...arr].sort(() => Math.random() - 0.5).slice(0, n);
+}
+
+/** Format a raw YouTube view count into "3.1B plays", "460M plays", "307K plays" */
+function formatPlays(count?: number): string {
+  if (!count || count < 1000) return "";
+  if (count >= 1_000_000_000) return `${(count / 1_000_000_000).toFixed(1)}B plays`;
+  if (count >= 1_000_000)     return `${(count / 1_000_000).toFixed(count >= 100_000_000 ? 0 : 1)}M plays`;
+  return `${Math.round(count / 1_000)}K plays`;
 }
 
 const PLAYLIST_TITLE_FILTER = /\b(top\s*\d+|playlist|compilation|best of|greatest hits|collection|nonstop|mix|vol\.|part \d)/i;
-
-// Matches titles that explicitly call out "MV", "M/V", "Music Video", "Official Video", "PV", etc.
 const MV_TITLE_PATTERN = /(official\s*(m\/?v|music\s*video|video)|music\s*video|\bm\/v\b|\bpv\b|官方\s*mv|뮤직\s*비디오)/i;
 
 function isLikelySingleTrack(track: Track): boolean {
@@ -168,40 +126,14 @@ function isLikelySingleTrack(track: Track): boolean {
   if (PLAYLIST_TITLE_FILTER.test(track.title)) return false;
   return true;
 }
-
 function isLikelyMV(track: Track): boolean {
-  if (!isLikelySingleTrack(track)) return false;
-  return MV_TITLE_PATTERN.test(track.title);
+  return isLikelySingleTrack(track) && MV_TITLE_PATTERN.test(track.title);
 }
 
-function ScrollRow({
-  title, children, onMore,
-}: {
-  title: string;
-  children: React.ReactNode;
-  onMore?: () => void;
-}) {
-  return (
-    <section className="mb-8">
-      <div className="flex items-center justify-between mb-4 px-6">
-        <h2 className="text-lg font-bold text-yt-text">{title}</h2>
-        {onMore && (
-          <button
-            onClick={onMore}
-            className="text-sm text-yt-muted hover:text-yt-text transition-colors"
-          >
-            More
-          </button>
-        )}
-      </div>
-      <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-1 px-6">
-        {children}
-      </div>
-    </section>
-  );
-}
-
+// ─── Shared TrackCard ─────────────────────────────────────────────────────────
 function TrackCard({ track, onPlay }: { track: Track; onPlay: () => void }) {
+  const plays = formatPlays(track.view_count);
+  const sub = [track.artist, plays, track.album].filter(Boolean).join(" · ");
   return (
     <div
       className="flex items-center gap-3 p-2 rounded-lg hover:bg-yt-elevated transition-colors cursor-pointer group"
@@ -211,7 +143,7 @@ function TrackCard({ track, onPlay }: { track: Track; onPlay: () => void }) {
         <img
           src={track.thumbnail}
           alt={track.title}
-          className="w-12 h-12 rounded object-cover"
+          className="w-12 h-12 rounded object-cover bg-yt-elevated"
           loading="lazy"
         />
         <div className="absolute inset-0 bg-black/40 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -220,37 +152,54 @@ function TrackCard({ track, onPlay }: { track: Track; onPlay: () => void }) {
       </div>
       <div className="min-w-0">
         <p className="text-sm font-medium text-yt-text truncate leading-tight">{track.title}</p>
-        <p className="text-xs text-yt-muted truncate mt-0.5">{track.artist}</p>
+        {sub && <p className="text-xs text-yt-muted truncate mt-0.5">{sub}</p>}
       </div>
     </div>
   );
 }
 
-function RightSection({
-  title,
-  tracks,
-  onPlayTrack,
-}: {
-  title: string;
-  tracks: Track[];
-  onPlayTrack: (t: Track) => void;
-}) {
-  if (tracks.length === 0) return (
-    <section className="mb-8">
-      <h2 className="text-lg font-bold text-yt-text mb-4 px-6">{title}</h2>
-      <div className="flex flex-col gap-1 px-4">
-        {[...Array(5)].map((_, i) => (
-          <div key={i} className="flex items-center gap-3 p-2">
-            <div className="w-12 h-12 rounded bg-yt-elevated flex-shrink-0 animate-pulse" />
-            <div className="flex-1 space-y-2">
-              <div className="h-3 bg-yt-elevated rounded animate-pulse w-3/4" />
-              <div className="h-2 bg-yt-elevated rounded animate-pulse w-1/2" />
-            </div>
-          </div>
-        ))}
+// ─── Skeleton row ─────────────────────────────────────────────────────────────
+function SkeletonRow() {
+  return (
+    <div className="flex items-center gap-3 p-2">
+      <div className="w-12 h-12 rounded bg-yt-elevated flex-shrink-0 animate-pulse" />
+      <div className="flex-1 space-y-2">
+        <div className="h-3 bg-yt-elevated rounded animate-pulse w-3/4" />
+        <div className="h-2 bg-yt-elevated rounded animate-pulse w-1/2" />
       </div>
+    </div>
+  );
+}
+
+// ─── Section: horizontal scroll row (Library) ─────────────────────────────────
+function ScrollRow({ title, children, onMore }: { title: string; children: React.ReactNode; onMore?: () => void }) {
+  return (
+    <section className="mb-8">
+      <div className="flex items-center justify-between mb-4 px-6">
+        <h2 className="text-lg font-bold text-yt-text">{title}</h2>
+        {onMore && (
+          <button onClick={onMore} className="text-sm text-yt-muted hover:text-yt-text transition-colors">
+            More
+          </button>
+        )}
+      </div>
+      <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-1 px-6">{children}</div>
     </section>
   );
+}
+
+// ─── Section: right-column list (New Released, Trending, MVs) ────────────────
+function RightSection({ title, tracks, onPlayTrack }: { title: string; tracks: Track[]; onPlayTrack: (t: Track) => void }) {
+  if (tracks.length === 0) {
+    return (
+      <section className="mb-8">
+        <h2 className="text-lg font-bold text-yt-text mb-4 px-6">{title}</h2>
+        <div className="flex flex-col gap-1 px-4">
+          {[...Array(5)].map((_, i) => <SkeletonRow key={i} />)}
+        </div>
+      </section>
+    );
+  }
   return (
     <section className="mb-8">
       <h2 className="text-lg font-bold text-yt-text mb-4 px-6">{title}</h2>
@@ -263,33 +212,187 @@ function RightSection({
   );
 }
 
+// ─── Genre section ────────────────────────────────────────────────────────────
+function GenreSection({ onPlayTrack, seenIds }: { onPlayTrack: (t: Track) => void; seenIds: React.RefObject<Set<string>> }) {
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const [songs, setSongs] = useState<Track[]>([]);
+  const [loading, setLoading] = useState(false);
+  const loadedFor = useRef<number>(-1);
+
+  const genre = GENRES[selectedIdx];
+
+  useEffect(() => {
+    if (loadedFor.current === selectedIdx) return;
+    loadedFor.current = selectedIdx;
+    setLoading(true);
+    setSongs([]);
+    searchTracks(genre.query)
+      .then((results) => {
+        const filtered = results
+          .filter(isLikelySingleTrack)
+          .filter((t) => !seenIds.current?.has(t.video_id))
+          .slice(0, 12);
+        filtered.forEach((t) => seenIds.current?.add(t.video_id));
+        setSongs(filtered);
+      })
+      .catch(() => setSongs([]))
+      .finally(() => setLoading(false));
+  }, [selectedIdx, genre.query]);
+
+  const prev = () => setSelectedIdx((i) => (i - 1 + GENRES.length) % GENRES.length);
+  const next = () => setSelectedIdx((i) => (i + 1) % GENRES.length);
+
+  // Split into 3 columns of 4
+  const col1 = songs.slice(0, 4);
+  const col2 = songs.slice(4, 8);
+  const col3 = songs.slice(8, 12);
+  const cols = [col1, col2, col3].filter((c) => c.length > 0);
+
+  return (
+    <section className="mb-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4 px-6">
+        <h2 className="text-lg font-bold text-yt-text">Browse by genre</h2>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-yt-muted">{genre.label}</span>
+          <button
+            onClick={prev}
+            className="w-8 h-8 rounded-full border border-yt-border flex items-center justify-center text-yt-muted hover:text-yt-text hover:border-yt-text transition-colors"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            onClick={next}
+            className="w-8 h-8 rounded-full border border-yt-border flex items-center justify-center text-yt-muted hover:text-yt-text hover:border-yt-text transition-colors"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* Genre chips — scrollable */}
+      <div className="flex gap-2 overflow-x-auto scrollbar-hide px-6 mb-4">
+        {GENRES.map((g, i) => (
+          <button
+            key={g.label}
+            onClick={() => setSelectedIdx(i)}
+            className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              i === selectedIdx
+                ? "bg-yt-text text-white"
+                : "bg-yt-elevated text-yt-muted hover:bg-yt-border hover:text-yt-text"
+            }`}
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Song grid — 3 columns × 4 rows */}
+      {loading ? (
+        <div className="flex gap-2 px-6">
+          {[0, 1, 2].map((ci) => (
+            <div key={ci} className="flex-1 flex flex-col gap-1">
+              {[0, 1, 2, 3].map((i) => <SkeletonRow key={i} />)}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-2 px-6">
+            {cols.map((col, ci) => (
+              <div key={ci} className="flex-1 flex flex-col gap-1 min-w-0">
+                {col.map((track) => (
+                  <TrackCard key={track.video_id} track={track} onPlay={() => onPlayTrack(track)} />
+                ))}
+              </div>
+            ))}
+          </div>
+          {songs.length > 0 && (
+            <div className="flex justify-start mt-2 px-6">
+              <button
+                onClick={() => songs.forEach((t) => onPlayTrack(t))}
+                className="text-sm text-yt-muted hover:text-yt-text transition-colors"
+              >
+                Play all
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack }: Props) {
   const navigate = useNavigate();
   const search = (q: string) => navigate(`/search?q=${encodeURIComponent(q)}`);
-  const [quickPicks, setQuickPicks] = useState<Track[]>([]);
-  const [quickPicksLoading, setQuickPicksLoading] = useState(true);
-  const [newReleased, setNewReleased] = useState<Track[]>([]);
-  const [trending, setTrending] = useState<Track[]>([]);
-  const [mvForYou, setMvForYou] = useState<Track[]>([]);
 
+  const [quickPicks, setQuickPicks]         = useState<Track[]>([]);
+  const [quickPicksLoading, setQPLoading]   = useState(true);
+  const [newReleased, setNewReleased]       = useState<Track[]>([]);
+  const [trending, setTrending]             = useState<Track[]>([]);
+  const [mvForYou, setMvForYou]             = useState<Track[]>([]);
+
+  // Global dedup — shared across all sections so the same song never appears twice
+  const seenIds = useRef<Set<string>>(new Set());
+
+  const addSeen = (tracks: Track[]): Track[] => {
+    const fresh = tracks.filter((t) => !seenIds.current.has(t.video_id));
+    fresh.forEach((t) => seenIds.current.add(t.video_id));
+    return fresh;
+  };
+
+  // ── Quick Picks: history-based if possible, random fallback ─────────────────
   useEffect(() => {
-    const shuffled = [...QUICK_PICK_QUERIES].sort(() => Math.random() - 0.5);
-    const [q1, q2] = shuffled;
-    Promise.all([searchTracks(q1), searchTracks(q2)])
-      .then(([r1, r2]) => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        // Try play history for personalised picks
+        if (guildId) {
+          const history = await getPlayHistory(guildId);
+          if (history.length >= 3) {
+            const recentArtists = [...new Set(history.slice(0, 15).map((t) => t.artist))].slice(0, 4);
+            const queries = recentArtists.map((a) => `${a} popular songs official mv`);
+            const results = await Promise.all(queries.map((q) => searchTracks(q)));
+            const recentIds = new Set(history.slice(0, 5).map((t) => t.video_id));
+            const merged = results
+              .flat()
+              .filter(isLikelySingleTrack)
+              .filter((t) => !recentIds.has(t.video_id))
+              .filter((t, i, arr) => arr.findIndex((x) => x.video_id === t.video_id) === i);
+            if (!cancelled) {
+              setQuickPicks(addSeen(merged.sort(() => Math.random() - 0.5).slice(0, 12)));
+              setQPLoading(false);
+              return;
+            }
+          }
+        }
+      } catch (_) { /* fallback below */ }
+
+      // Fallback: random pool
+      if (!cancelled) {
+        const [q1, q2] = pickRandom(QUICK_PICK_QUERIES, 2);
+        const [r1, r2] = await Promise.all([searchTracks(q1), searchTracks(q2)]);
         const merged = [...r1, ...r2]
           .filter(isLikelySingleTrack)
           .filter((t, i, arr) => arr.findIndex((x) => x.video_id === t.video_id) === i);
-        setQuickPicks(merged.sort(() => Math.random() - 0.5).slice(0, 12));
-      })
-      .catch(() => {})
-      .finally(() => setQuickPicksLoading(false));
-  }, []);
+        if (!cancelled) {
+          setQuickPicks(addSeen(merged.sort(() => Math.random() - 0.5).slice(0, 12)));
+          setQPLoading(false);
+        }
+      }
+    }
 
+    load().catch(() => { if (!cancelled) setQPLoading(false); });
+    return () => { cancelled = true; };
+  }, [guildId]);
+
+  // ── Right-column sections: New Released · Trending · MVs ─────────────────
   useEffect(() => {
-    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-    // New Released — 2 random queries merged, shuffled, dedupe
     const [nq1, nq2] = pickRandom(NEW_RELEASE_POOLS, 2);
     delay(400)
       .then(() => Promise.all([searchTracks(nq1), searchTracks(nq2)]))
@@ -297,11 +400,10 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
         const merged = [...r1, ...r2]
           .filter(isLikelySingleTrack)
           .filter((t, i, arr) => arr.findIndex((x) => x.video_id === t.video_id) === i);
-        setNewReleased(merged.sort(() => Math.random() - 0.5).slice(0, 6));
+        setNewReleased(addSeen(merged.sort(() => Math.random() - 0.5).slice(0, 6)));
       })
       .catch(() => {});
 
-    // Trending — 2 different random queries merged & shuffled
     const [tq1, tq2] = pickRandom(TRENDING_POOLS, 2);
     delay(800)
       .then(() => Promise.all([searchTracks(tq1), searchTracks(tq2)]))
@@ -309,11 +411,10 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
         const merged = [...r1, ...r2]
           .filter(isLikelySingleTrack)
           .filter((t, i, arr) => arr.findIndex((x) => x.video_id === t.video_id) === i);
-        setTrending(merged.sort(() => Math.random() - 0.5).slice(0, 6));
+        setTrending(addSeen(merged.sort(() => Math.random() - 0.5).slice(0, 6)));
       })
       .catch(() => {});
 
-    // Music Videos for You — 2 different random MV queries, MV-filtered
     const [mq1, mq2] = pickRandom(MV_POOLS, 2);
     delay(1200)
       .then(() => Promise.all([searchTracks(mq1), searchTracks(mq2)]))
@@ -321,7 +422,7 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
         const merged = [...r1, ...r2]
           .filter(isLikelyMV)
           .filter((t, i, arr) => arr.findIndex((x) => x.video_id === t.video_id) === i);
-        setMvForYou(merged.sort(() => Math.random() - 0.5).slice(0, 6));
+        setMvForYou(addSeen(merged.sort(() => Math.random() - 0.5).slice(0, 6)));
       })
       .catch(() => {});
   }, []);
@@ -334,7 +435,7 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
 
   return (
     <div className="flex flex-col md:flex-row min-h-full">
-      {/* Left column */}
+      {/* ── Left column ─────────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0 py-6">
         {/* Mood chips */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 mb-8 px-6">
@@ -352,11 +453,7 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
         {/* Your Library */}
         <ScrollRow title="Your Library">
           {playlists.map((pl) => (
-            <button
-              key={pl.id}
-              onClick={() => navigate(`/playlist/${pl.id}`)}
-              className="flex-shrink-0 w-40 text-left group"
-            >
+            <button key={pl.id} onClick={() => navigate(`/playlist/${pl.id}`)} className="flex-shrink-0 w-40 text-left group">
               <div
                 className="w-40 h-40 rounded-xl flex items-center justify-center mb-2 text-4xl transition-opacity group-hover:opacity-80 overflow-hidden"
                 style={{ background: (pl.icon && (pl.icon.startsWith("/") || pl.icon.startsWith("http"))) ? undefined : getGradient(pl.color) }}
@@ -371,10 +468,7 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
               <p className="text-xs text-yt-muted mt-0.5">Playlist</p>
             </button>
           ))}
-          <button
-            onClick={onCreatePlaylist}
-            className="flex-shrink-0 w-40 text-left group"
-          >
+          <button onClick={onCreatePlaylist} className="flex-shrink-0 w-40 text-left group">
             <div className="w-40 h-40 rounded-xl bg-yt-elevated flex items-center justify-center mb-2 group-hover:bg-yt-border transition-colors">
               <Plus size={32} className="text-yt-muted" />
             </div>
@@ -382,25 +476,20 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
           </button>
         </ScrollRow>
 
-        {/* Quick picks */}
+        {/* Quick Picks */}
         {(quickPicksLoading || quickPicks.length > 0) && (
           <section className="mb-8">
             <div className="mb-4 px-6">
               <h2 className="text-lg font-bold text-yt-text">Quick picks</h2>
+              {guildId && !quickPicksLoading && (
+                <p className="text-xs text-yt-muted mt-0.5">Based on your recent plays</p>
+              )}
             </div>
             {quickPicksLoading ? (
               <div className="flex gap-2 px-6">
                 {[0, 1, 2].map((ci) => (
                   <div key={ci} className="flex-shrink-0 w-72 flex flex-col gap-1">
-                    {[0, 1, 2, 3].map((i) => (
-                      <div key={i} className="flex items-center gap-3 p-2">
-                        <div className="w-12 h-12 rounded bg-yt-elevated flex-shrink-0 animate-pulse" />
-                        <div className="flex-1 space-y-2">
-                          <div className="h-3 bg-yt-elevated rounded animate-pulse w-3/4" />
-                          <div className="h-2 bg-yt-elevated rounded animate-pulse w-1/2" />
-                        </div>
-                      </div>
-                    ))}
+                    {[0, 1, 2, 3].map((i) => <SkeletonRow key={i} />)}
                   </div>
                 ))}
               </div>
@@ -410,18 +499,14 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
                   {qpCols.map((col, ci) => (
                     <div key={ci} className="flex-shrink-0 w-72 flex flex-col gap-1">
                       {col.map((track) => (
-                        <TrackCard
-                          key={track.video_id}
-                          track={track}
-                          onPlay={() => onPlayTrack(track)}
-                        />
+                        <TrackCard key={track.video_id} track={track} onPlay={() => onPlayTrack(track)} />
                       ))}
                     </div>
                   ))}
                 </div>
                 <div className="flex justify-start mt-2 px-6">
                   <button
-                    onClick={() => search(QUICK_PICK_QUERIES[0])}
+                    onClick={() => quickPicks.forEach((t) => onPlayTrack(t))}
                     className="text-sm text-yt-muted hover:text-yt-text transition-colors"
                   >
                     Play all
@@ -432,36 +517,19 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
           </section>
         )}
 
-        {/* Browse by genre */}
-        <section className="mb-8">
-          <div className="mb-4 px-6">
-            <h2 className="text-lg font-bold text-yt-text">Browse by genre</h2>
-          </div>
-          <div className="overflow-x-auto scrollbar-hide px-6">
-            <div className="grid grid-rows-2 grid-flow-col gap-2 w-max">
-              {GENRES.map((g) => (
-                <button
-                  key={g.label}
-                  onClick={() => search(g.query)}
-                  className={`w-32 h-14 rounded-xl bg-gradient-to-br ${g.color} flex items-center justify-center hover:scale-105 transition-transform`}
-                >
-                  <span className="text-xs font-bold text-white drop-shadow text-center leading-tight px-1">{g.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
+        {/* Genre section — YouTube Music "Heard in Shorts" style */}
+        <GenreSection onPlayTrack={onPlayTrack} seenIds={seenIds} />
       </div>
 
-      {/* Divider — vertical on desktop, horizontal on mobile */}
+      {/* Divider */}
       <div className="hidden md:block w-px bg-yt-border flex-shrink-0" />
       <div className="block md:hidden mx-6 border-t border-yt-border" />
 
-      {/* Right column */}
+      {/* ── Right column ────────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0 py-6">
-        <RightSection title="New Released" tracks={newReleased} onPlayTrack={onPlayTrack} />
-        <RightSection title="Trending Song" tracks={trending} onPlayTrack={onPlayTrack} />
-        <RightSection title="Music Videos for You" tracks={mvForYou} onPlayTrack={onPlayTrack} />
+        <RightSection title="New Released"         tracks={newReleased} onPlayTrack={onPlayTrack} />
+        <RightSection title="Trending Song"        tracks={trending}    onPlayTrack={onPlayTrack} />
+        <RightSection title="Music Videos for You" tracks={mvForYou}    onPlayTrack={onPlayTrack} />
       </div>
     </div>
   );

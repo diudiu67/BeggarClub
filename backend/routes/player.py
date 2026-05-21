@@ -173,6 +173,13 @@ async def recommendations(guild_id: str):
     return {"recommendations": recs}
 
 
+@router.get("/history/{guild_id}")
+async def get_history(guild_id: str):
+    """Return the last 50 tracks played in this guild (most recent first)."""
+    gp = player_manager.get(guild_id)
+    return {"history": [t.to_dict() for t in reversed(gp.history)]}
+
+
 @router.post("/stop")
 async def stop(req: GuildRequest):
     await bot_runner.run(discord_bot.stop_and_disconnect(req.guild_id))

@@ -67,6 +67,10 @@ export const getRecommendations = (guild_id: string) =>
   api.get<{ recommendations: Track[] }>(`/player/recommendations/${guild_id}`)
     .then((r) => r.data.recommendations);
 
+export const getPlayHistory = (guild_id: string) =>
+  api.get<{ history: Track[] }>(`/player/history/${guild_id}`)
+    .then((r) => r.data.history);
+
 // Playlists
 export const getPlaylists = (guild_id: string) =>
   api.get<{ playlists: Playlist[] }>("/playlists", { params: { guild_id } }).then((r) => r.data.playlists);

@@ -90,28 +90,49 @@ export default function PlayerOverlay({
 
     const createPlayer = () => {
       if (!document.getElementById("yt-video-player")) return;
+      // Shared state between event handlers (avoids stale closure)
+      const sync = { initialSynced: false };
+
       player = new (window as any).YT.Player("yt-video-player", {
         videoId: current.video_id,
         playerVars: { autoplay: 1, mute: 1, start: getBotTime(), rel: 0, controls: 1 },
         events: {
           onReady: (event: any) => {
+            // Seek to current bot position immediately
             event.target.seekTo(getBotTime(), true);
             event.target.playVideo();
-            // Re-sync every 3 s to prevent drift
+
+            // Re-sync every 1.5 s — tighter interval + 1 s threshold catches drift fast
             syncInterval = setInterval(() => {
               try {
                 const { is_playing: playing, is_paused: paused, started_at: sa } = botStateRef.current;
-                const botTime = sa ? Math.max(0, Math.floor(Date.now() / 1000 - sa)) : 0;
+                const botTime = sa ? Math.max(0, Date.now() / 1000 - sa) : 0;
                 const ytState = event.target.getPlayerState(); // 1=playing 2=paused
                 if (!playing || paused) {
                   if (ytState === 1) event.target.pauseVideo();
                 } else {
                   if (ytState !== 1) event.target.playVideo();
-                  if (Math.abs(event.target.getCurrentTime() - botTime) > 2)
+                  // Seek if off by more than 1 s
+                  if (Math.abs(event.target.getCurrentTime() - botTime) > 1)
                     event.target.seekTo(botTime, true);
                 }
               } catch (_) {}
-            }, 3000);
+            }, 1500);
+          },
+          onStateChange: (event: any) => {
+            // When video first transitions to PLAYING (after initial buffering),
+            // do a precise re-sync to correct any startup offset.
+            if (event.data === 1 && !sync.initialSynced) {
+              sync.initialSynced = true;
+              setTimeout(() => {
+                try {
+                  const { started_at: sa } = botStateRef.current;
+                  const botTime = sa ? Math.max(0, Date.now() / 1000 - sa) : 0;
+                  if (Math.abs(event.target.getCurrentTime() - botTime) > 0.5)
+                    event.target.seekTo(botTime, true);
+                } catch (_) {}
+              }, 200);
+            }
           },
         },
       });

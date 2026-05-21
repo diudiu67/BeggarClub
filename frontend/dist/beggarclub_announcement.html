@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>马来西亚丐帮 · 躲猫猫活动公告</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 700px;
+    min-height: 1000px;
+    background: #000;
+    font-family: 'Noto Serif SC', '华文行楷', 'STKaiti', serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .poster {
+    width: 700px;
+    min-height: 1000px;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(170deg,
+      #0a0a1a 0%,
+      #0d1025 15%,
+      #111530 30%,
+      #0e1828 50%,
+      #080f1c 70%,
+      #050810 100%
+    );
+  }
+
+  /* ── Stars ── */
+  .stars {
+    position: absolute; inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 10% 8%, rgba(255,255,255,0.9) 0%, transparent 100%),
+      radial-gradient(1px 1px at 25% 5%, rgba(255,255,255,0.7) 0%, transparent 100%),
+      radial-gradient(1.5px 1.5px at 40% 12%, rgba(255,255,255,0.8) 0%, transparent 100%),
+      radial-gradient(1px 1px at 60% 3%, rgba(255,255,255,0.6) 0%, transparent 100%),
+      radial-gradient(1px 1px at 75% 9%, rgba(255,255,255,0.9) 0%, transparent 100%),
+      radial-gradient(1px 1px at 88% 6%, rgba(255,255,255,0.7) 0%, transparent 100%),
+      radial-gradient(1px 1px at 15% 18%, rgba(255,255,255,0.5) 0%, transparent 100%),
+      radial-gradient(1px 1px at 50% 20%, rgba(255,255,255,0.6) 0%, transparent 100%),
+      radial-gradient(1px 1px at 82% 22%, rgba(255,255,255,0.8) 0%, transparent 100%),
+      radial-gradient(1px 1px at 5% 30%, rgba(255,255,255,0.4) 0%, transparent 100%),
+      radial-gradient(1px 1px at 95% 28%, rgba(255,255,255,0.6) 0%, transparent 100%);
+  }
+
+  /* ── Moon ── */
+  .moon {
+    position: absolute;
+    top: 48px;
+    right: 90px;
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #fff8e1, #fdeaaa 40%, #e8c97a 75%, #c9a84c);
+    box-shadow:
+      0 0 30px 12px rgba(253,234,170,0.35),
+      0 0 70px 30px rgba(253,220,120,0.18),
+      0 0 120px 60px rgba(253,200,80,0.08);
+    animation: moonPulse 4s ease-in-out infinite;
+  }
+  @keyframes moonPulse {
+    0%,100% { box-shadow: 0 0 30px 12px rgba(253,234,170,0.35), 0 0 70px 30px rgba(253,220,120,0.18); }
+    50%      { box-shadow: 0 0 40px 18px rgba(253,234,170,0.45), 0 0 90px 40px rgba(253,220,120,0.25); }
+  }
+
+  /* ── Flying Birds (crows) ── */
+  .birds { position: absolute; top: 60px; left: 0; width: 100%; height: 160px; }
+  .bird {
+    position: absolute;
+    width: 22px; height: 8px;
+    border-top: 3px solid rgba(20,20,40,0.9);
+    border-radius: 50% 50% 0 0;
+    animation: fly 6s ease-in-out infinite;
+  }
+  .bird::before, .bird::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    width: 10px; height: 8px;
+    border-top: 3px solid rgba(20,20,40,0.9);
+    border-radius: 50% 50% 0 0;
+  }
+  .bird::before { left: -8px; transform: rotate(-15deg); }
+  .bird::after  { right: -8px; transform: rotate(15deg); }
+
+  .bird:nth-child(1) { top: 30px; left: 55%; animation-delay: 0s;   animation-duration: 5.5s; transform: scale(0.7); }
+  .bird:nth-child(2) { top: 50px; left: 60%; animation-delay: 0.4s; animation-duration: 6s;   transform: scale(0.85); }
+  .bird:nth-child(3) { top: 20px; left: 68%; animation-delay: 0.8s; animation-duration: 5s;   transform: scale(0.6); }
+  .bird:nth-child(4) { top: 65px; left: 45%; animation-delay: 1.2s; animation-duration: 6.5s; transform: scale(0.5); }
+  .bird:nth-child(5) { top: 40px; left: 72%; animation-delay: 0.2s; animation-duration: 5.8s; transform: scale(0.75); }
+  .bird:nth-child(6) { top: 80px; left: 52%; animation-delay: 1.6s; animation-duration: 7s;   transform: scale(0.55); }
+
+  @keyframes fly {
+    0%,100% { transform: translateY(0) scale(var(--s,0.7)); }
+    50%      { transform: translateY(-8px) scale(var(--s,0.7)); }
+  }
+
+  /* ── Mist layers ── */
+  .mist-bottom {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 220px;
+    background: linear-gradient(to top,
+      rgba(15,25,60,0.7) 0%,
+      rgba(10,18,45,0.4) 40%,
+      transparent 100%
+    );
+  }
+  .mist-top {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 180px;
+    background: linear-gradient(to bottom,
+      rgba(5,10,25,0.6) 0%,
+      transparent 100%
+    );
+  }
+
+  /* ── Top decorative border ── */
+  .border-top, .border-bottom {
+    position: absolute; left: 24px; right: 24px;
+    height: 3px;
+    background: linear-gradient(90deg,
+      transparent 0%,
+      rgba(180,140,60,0.4) 15%,
+      rgba(220,180,80,0.9) 50%,
+      rgba(180,140,60,0.4) 85%,
+      transparent 100%
+    );
+  }
+  .border-top    { top: 22px; }
+  .border-bottom { bottom: 22px; }
+
+  .border-top::before, .border-bottom::before,
+  .border-top::after,  .border-bottom::after {
+    content: '◆';
+    position: absolute;
+    top: 50%; transform: translateY(-50%);
+    color: rgba(220,180,80,0.9);
+    font-size: 10px;
+  }
+  .border-top::before,  .border-bottom::before { left: -6px; }
+  .border-top::after,   .border-bottom::after  { right: -6px; }
+
+  /* Corner ornaments */
+  .corner {
+    position: absolute;
+    width: 36px; height: 36px;
+    border-color: rgba(180,140,60,0.7);
+    border-style: solid;
+  }
+  .corner-tl { top: 14px;    left: 14px;   border-width: 2px 0 0 2px; }
+  .corner-tr { top: 14px;    right: 14px;  border-width: 2px 2px 0 0; }
+  .corner-bl { bottom: 14px; left: 14px;   border-width: 0 0 2px 2px; }
+  .corner-br { bottom: 14px; right: 14px;  border-width: 0 2px 2px 0; }
+
+  /* ── Content wrapper ── */
+  .content {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 60px 50px 60px;
+    gap: 0;
+  }
+
+  /* ── Guild banner icon ── */
+  .guild-banner-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 18px;
+  }
+  .guild-banner-icon {
+    width: 56px; height: 72px;
+    background: linear-gradient(170deg, #1a3a8f, #0d2260, #091540);
+    clip-path: polygon(0 0, 100% 0, 100% 80%, 50% 100%, 0 80%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 18px rgba(80,120,255,0.4);
+    position: relative;
+  }
+  .guild-banner-icon::before {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    clip-path: polygon(0 0, 100% 0, 100% 80%, 50% 100%, 0 80%);
+    border: 1px solid rgba(120,160,255,0.3);
+  }
+  .guild-banner-char {
+    font-size: 26px;
+    font-weight: 900;
+    color: #a8c0ff;
+    text-shadow: 0 0 10px rgba(120,160,255,0.8);
+    line-height: 1;
+  }
+  .guild-name-tag {
+    margin-top: 10px;
+    font-size: 13px;
+    letter-spacing: 4px;
+    color: rgba(180,150,80,0.85);
+    text-shadow: 0 0 8px rgba(180,150,80,0.4);
+  }
+
+  /* ── Game name ── */
+  .game-name {
+    font-size: 15px;
+    letter-spacing: 6px;
+    color: rgba(160,130,60,0.7);
+    margin-bottom: 6px;
+    text-shadow: 0 0 6px rgba(160,130,60,0.3);
+  }
+
+  /* ── Main title ── */
+  .main-title {
+    font-size: 54px;
+    font-weight: 900;
+    letter-spacing: 8px;
+    line-height: 1.1;
+    text-align: center;
+    background: linear-gradient(180deg,
+      #fff5cc 0%,
+      #ffd966 30%,
+      #e6b030 60%,
+      #c8932a 85%,
+      #a67520 100%
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
+    filter: drop-shadow(0 0 12px rgba(220,170,50,0.6));
+    margin-bottom: 4px;
+  }
+
+  .main-title-sub {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 14px;
+    color: rgba(200,160,60,0.75);
+    text-align: center;
+    margin-bottom: 24px;
+  }
+
+  /* ── Divider ── */
+  .divider {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 10px 0;
+  }
+  .divider-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(180,140,60,0.6), transparent);
+  }
+  .divider-diamond {
+    color: rgba(200,160,60,0.8);
+    font-size: 12px;
+  }
+
+  /* ── Info card ── */
+  .info-card {
+    width: 100%;
+    background: linear-gradient(135deg,
+      rgba(255,255,255,0.04) 0%,
+      rgba(180,140,60,0.06) 50%,
+      rgba(255,255,255,0.02) 100%
+    );
+    border: 1px solid rgba(180,140,60,0.2);
+    border-radius: 2px;
+    padding: 22px 32px;
+    margin: 14px 0;
+    position: relative;
+  }
+  .info-card::before {
+    content: '';
+    position: absolute;
+    top: -1px; left: 20px; right: 20px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(200,160,60,0.5), transparent);
+  }
+  .info-card::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 20px; right: 20px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(200,160,60,0.5), transparent);
+  }
+
+  .info-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin: 11px 0;
+  }
+  .info-label {
+    min-width: 70px;
+    font-size: 14px;
+    letter-spacing: 2px;
+    color: rgba(180,140,60,0.9);
+    white-space: nowrap;
+    padding-top: 1px;
+  }
+  .info-label::after { content: '：'; }
+  .info-sep {
+    color: rgba(180,140,60,0.4);
+    font-size: 14px;
+    padding-top: 1px;
+  }
+  .info-value {
+    font-size: 15px;
+    letter-spacing: 1px;
+    color: rgba(230,215,180,0.92);
+    line-height: 1.7;
+    flex: 1;
+  }
+  .info-value.highlight {
+    color: #ffd966;
+    font-weight: 700;
+    font-size: 16px;
+  }
+
+  /* ── Activity title block ── */
+  .activity-block {
+    text-align: center;
+    margin: 8px 0 4px;
+  }
+  .activity-label {
+    font-size: 13px;
+    letter-spacing: 5px;
+    color: rgba(160,130,60,0.7);
+    margin-bottom: 6px;
+  }
+  .activity-name {
+    font-size: 40px;
+    font-weight: 900;
+    letter-spacing: 10px;
+    background: linear-gradient(180deg, #fff5cc, #ffd040 40%, #c8930a);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 10px rgba(220,170,50,0.5));
+  }
+
+  /* ── Rules block ── */
+  .rules-block {
+    width: 100%;
+    padding: 18px 28px;
+    background: rgba(0,0,0,0.25);
+    border-left: 3px solid rgba(180,140,60,0.5);
+    margin: 8px 0;
+  }
+  .rules-title {
+    font-size: 13px;
+    letter-spacing: 4px;
+    color: rgba(180,140,60,0.8);
+    margin-bottom: 10px;
+  }
+  .rule-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 8px 0;
+    font-size: 15px;
+    color: rgba(220,205,170,0.9);
+    line-height: 1.7;
+  }
+  .rule-bullet {
+    color: rgba(200,160,60,0.8);
+    font-size: 12px;
+    margin-top: 4px;
+    flex-shrink: 0;
+  }
+
+  /* ── Reward block ── */
+  .reward-block {
+    width: 100%;
+    background: linear-gradient(135deg,
+      rgba(180,140,60,0.08) 0%,
+      rgba(100,80,20,0.12) 50%,
+      rgba(180,140,60,0.06) 100%
+    );
+    border: 1px solid rgba(180,140,60,0.3);
+    border-radius: 2px;
+    padding: 20px 28px;
+    margin: 8px 0;
+    text-align: center;
+    position: relative;
+  }
+  .reward-title {
+    font-size: 13px;
+    letter-spacing: 5px;
+    color: rgba(180,140,60,0.85);
+    margin-bottom: 12px;
+  }
+  .reward-item {
+    margin: 8px 0;
+    font-size: 15px;
+    line-height: 1.8;
+    color: rgba(230,215,180,0.9);
+  }
+  .reward-item .item-name {
+    color: #ffd040;
+    font-weight: 700;
+    font-size: 17px;
+    display: inline-block;
+    padding: 0 4px;
+  }
+  .reward-condition {
+    font-size: 13px;
+    color: rgba(160,140,100,0.8);
+    margin-top: 4px;
+  }
+
+  /* ── Bottom seal / footer ── */
+  .footer-seal {
+    margin-top: 22px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .seal-circle {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    border: 2px solid rgba(180,140,60,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .seal-circle::before {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    border: 1px solid rgba(180,140,60,0.3);
+  }
+  .seal-text {
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(180,140,60,0.7);
+    letter-spacing: 1px;
+    text-align: center;
+    line-height: 1.3;
+  }
+  .footer-note {
+    font-size: 12px;
+    letter-spacing: 3px;
+    color: rgba(140,110,50,0.6);
+    text-align: center;
+  }
+
+  /* ── Atmospheric glow orbs ── */
+  .glow-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(60px);
+    opacity: 0.12;
+    pointer-events: none;
+  }
+  .glow-orb-1 { width: 300px; height: 300px; background: #1a3a8f; top: -80px;   right: -60px; }
+  .glow-orb-2 { width: 200px; height: 200px; background: #2a1a5f; bottom: 100px; left: -40px;  opacity: 0.1; }
+  .glow-orb-3 { width: 180px; height: 180px; background: #8f6a1a; top: 200px;   left: 50%;   transform: translateX(-50%); opacity: 0.07; }
+
+  /* ── Ink splash deco ── */
+  .ink-deco {
+    position: absolute;
+    font-size: 120px;
+    color: rgba(255,255,255,0.015);
+    font-weight: 900;
+    letter-spacing: 0;
+    pointer-events: none;
+    user-select: none;
+  }
+  .ink-deco-1 { bottom: 80px;  left: -10px;  transform: rotate(-15deg); }
+  .ink-deco-2 { top: 120px; right: -10px; transform: rotate(12deg); }
+</style>
+</head>
+<body>
+<div class="poster">
+
+  <!-- Atmospheric glows -->
+  <div class="glow-orb glow-orb-1"></div>
+  <div class="glow-orb glow-orb-2"></div>
+  <div class="glow-orb glow-orb-3"></div>
+
+  <!-- Background ink decorations -->
+  <div class="ink-deco ink-deco-1">丐</div>
+  <div class="ink-deco ink-deco-2">燕</div>
+
+  <!-- Stars -->
+  <div class="stars"></div>
+
+  <!-- Moon -->
+  <div class="moon"></div>
+
+  <!-- Flying birds -->
+  <div class="birds">
+    <div class="bird"></div>
+    <div class="bird"></div>
+    <div class="bird"></div>
+    <div class="bird"></div>
+    <div class="bird"></div>
+    <div class="bird"></div>
+  </div>
+
+  <!-- Mist -->
+  <div class="mist-top"></div>
+  <div class="mist-bottom"></div>
+
+  <!-- Borders & corners -->
+  <div class="border-top"></div>
+  <div class="border-bottom"></div>
+  <div class="corner corner-tl"></div>
+  <div class="corner corner-tr"></div>
+  <div class="corner corner-bl"></div>
+  <div class="corner corner-br"></div>
+
+  <!-- Main content -->
+  <div class="content">
+
+    <!-- Guild banner icon -->
+    <div class="guild-banner-wrap">
+      <div class="guild-banner-icon">
+        <span class="guild-banner-char">丐</span>
+      </div>
+      <div class="guild-name-tag">马 来 西 亚 丐 帮</div>
+    </div>
+
+    <div class="game-name">燕 云 十 六 声</div>
+
+    <!-- Divider -->
+    <div class="divider">
+      <div class="divider-line"></div>
+      <div class="divider-diamond">◆ ◇ ◆</div>
+      <div class="divider-line"></div>
+    </div>
+
+    <!-- Activity name -->
+    <div class="activity-block">
+      <div class="activity-label">百 业 活 动</div>
+      <div class="activity-name">躲 猫 猫</div>
+    </div>
+
+    <!-- Divider -->
+    <div class="divider" style="margin-top:14px;">
+      <div class="divider-line"></div>
+      <div class="divider-diamond">◆</div>
+      <div class="divider-line"></div>
+    </div>
+
+    <!-- Info card -->
+    <div class="info-card">
+      <div class="info-row">
+        <span class="info-label">百　业</span>
+        <span class="info-value highlight">马来西亚丐帮</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">活　动</span>
+        <span class="info-value">躲猫猫</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">时　间</span>
+        <span class="info-value">今日百业派对结束后 · 立即开始</span>
+      </div>
+    </div>
+
+    <!-- Rules block -->
+    <div class="rules-block">
+      <div class="rules-title">【 玩 法 说 明 】</div>
+      <div class="rule-item">
+        <span class="rule-bullet">◆</span>
+        <span>游戏共进行 <strong style="color:#ffd040;">五局</strong>，每局重新躲藏</span>
+      </div>
+      <div class="rule-item">
+        <span class="rule-bullet">◆</span>
+        <span>帮主藏好后，众帮众开始寻找</span>
+      </div>
+      <div class="rule-item">
+        <span class="rule-bullet">◆</span>
+        <span>每局 <strong style="color:#ffd040;">第一位</strong> 找到帮主者获得奖励</span>
+      </div>
+      <div class="rule-item">
+        <span class="rule-bullet">◆</span>
+        <span>欢迎全体帮众踊跃参与，共同欢乐！</span>
+      </div>
+    </div>
+
+    <!-- Reward block -->
+    <div class="reward-block">
+      <div class="reward-title">【 丰 厚 奖 励 】</div>
+      <div class="reward-item">
+        每局第一位找到帮主者
+        <br>
+        可获得珍稀道具
+        <span class="item-name">「 熊有成竹 」</span>
+        一份
+      </div>
+      <div class="divider" style="margin: 10px 0;">
+        <div class="divider-line"></div>
+        <div class="divider-diamond" style="font-size:9px; color:rgba(180,140,60,0.5);">◆</div>
+        <div class="divider-line"></div>
+      </div>
+      <div class="reward-condition">
+        ※ 已拥有「熊有成竹」者，改获
+        <span style="color:#ffd040; font-weight:700;">60珠外观</span>
+        一件
+      </div>
+    </div>
+
+    <!-- Divider -->
+    <div class="divider" style="margin-top: 6px;">
+      <div class="divider-line"></div>
+      <div class="divider-diamond">◆ ◇ ◆</div>
+      <div class="divider-line"></div>
+    </div>
+
+    <!-- Footer seal -->
+    <div class="footer-seal">
+      <div class="seal-circle">
+        <div class="seal-text">丐帮<br>印记</div>
+      </div>
+      <div class="footer-note">马来西亚丐帮 · 欢迎加入我们</div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /poster -->
+</body>
+</html>

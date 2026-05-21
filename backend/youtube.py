@@ -72,6 +72,8 @@ def _search_ytdlp(query: str, max_results: int) -> list[dict]:
                     "artist": e.get("uploader") or e.get("channel") or "",
                     "thumbnail": thumb,
                     "duration": int(dur),
+                    "view_count": e.get("view_count"),   # int or None
+                    "album": e.get("album"),             # str or None
                 })
                 if len(results) >= max_results:
                     break
