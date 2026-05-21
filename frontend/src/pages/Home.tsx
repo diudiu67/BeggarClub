@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Music2, Play, Plus } from "lucide-react";
+import { Music2, Play, Plus } from "lucide-react";
 import type { Playlist, Track } from "../types";
 import { getPlayHistory, searchTracks } from "../lib/api";
 import { getGradient } from "../lib/playlistTheme";
@@ -226,113 +226,96 @@ function RightSection({ title, tracks, onPlayTrack }: { title: string; tracks: T
   );
 }
 
-// ─── Genre section ────────────────────────────────────────────────────────────
-function GenreSection({ onPlayTrack, seenIds }: { onPlayTrack: (t: Track) => void; seenIds: React.RefObject<Set<string>> }) {
-  const [selectedIdx, setSelectedIdx] = useState(0);
-  const [songs, setSongs] = useState<Track[]>([]);
-  const [loading, setLoading] = useState(false);
-  const loadedFor = useRef<number>(-1);
+// ─── Genre section — vertical, one block per genre ───────────────────────────
 
-  const genre = GENRES[selectedIdx];
+/** Which genres to feature on the home page (picks a spread across languages) */
+const FEATURED_GENRES = [
+  GENRES[0],  // Mandopop
+  GENRES[8],  // K-Pop
+  GENRES[4],  // J-Pop
+  GENRES[1],  // Cantopop
+  GENRES[11], // Pop
+  GENRES[5],  // Anime OST
+];
+
+/** One genre block: loads its own songs independently, no shared dedup state */
+function GenreBlock({
+  genre,
+  loadDelay,
+  onPlayTrack,
+}: {
+  genre: { label: string; query: string };
+  loadDelay: number;
+  onPlayTrack: (t: Track) => void;
+}) {
+  const navigate = useNavigate();
+  const [songs, setSongs] = useState<Track[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (loadedFor.current === selectedIdx) return;
-    loadedFor.current = selectedIdx;
-    setLoading(true);
-    setSongs([]);
-    searchTracks(genre.query)
-      .then((results) => {
-        const filtered = results
-          .filter(isLikelySingleTrack)
-          .filter((t) => !seenIds.current?.has(t.video_id))
-          .slice(0, 12);
-        filtered.forEach((t) => seenIds.current?.add(t.video_id));
-        setSongs(filtered);
-      })
-      .catch(() => setSongs([]))
-      .finally(() => setLoading(false));
-  }, [selectedIdx, genre.query]);
-
-  const prev = () => setSelectedIdx((i) => (i - 1 + GENRES.length) % GENRES.length);
-  const next = () => setSelectedIdx((i) => (i + 1) % GENRES.length);
-
-  // Split into 3 columns of 4
-  const col1 = songs.slice(0, 4);
-  const col2 = songs.slice(4, 8);
-  const col3 = songs.slice(8, 12);
-  const cols = [col1, col2, col3].filter((c) => c.length > 0);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      searchTracks(genre.query)
+        .then((results) => {
+          if (cancelled) return;
+          const filtered = results
+            .filter(isLikelySingleTrack)
+            .filter((t, i, arr) => arr.findIndex((x) => x.video_id === t.video_id) === i)
+            .slice(0, 5);
+          setSongs(filtered);
+        })
+        .catch(() => { if (!cancelled) setFailed(true); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    }, loadDelay);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [genre.query, loadDelay]);
 
   return (
     <section className="mb-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 px-6">
+      {/* Header: 【Genre】 ··· View all */}
+      <div className="flex items-center justify-between mb-3 px-6">
+        <h3 className="text-base font-bold text-yt-text">
+          【{genre.label}】
+        </h3>
+        <button
+          onClick={() => navigate(`/search?q=${encodeURIComponent(genre.query)}`)}
+          className="text-xs text-yt-muted hover:text-yt-text transition-colors"
+        >
+          View all
+        </button>
+      </div>
+
+      {/* Song list */}
+      <div className="flex flex-col gap-1 px-4">
+        {loading ? (
+          [0, 1, 2, 3, 4].map((i) => <SkeletonRow key={i} />)
+        ) : failed || songs.length === 0 ? (
+          <p className="text-xs text-yt-muted px-2 py-3">No results</p>
+        ) : (
+          songs.map((track) => (
+            <TrackCard key={track.video_id} track={track} onPlay={() => onPlayTrack(track)} />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function GenreSection({ onPlayTrack }: { onPlayTrack: (t: Track) => void }) {
+  return (
+    <section>
+      <div className="mb-4 px-6">
         <h2 className="text-lg font-bold text-yt-text">Browse by genre</h2>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-yt-muted">{genre.label}</span>
-          <button
-            onClick={prev}
-            className="w-8 h-8 rounded-full border border-yt-border flex items-center justify-center text-yt-muted hover:text-yt-text hover:border-yt-text transition-colors"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <button
-            onClick={next}
-            className="w-8 h-8 rounded-full border border-yt-border flex items-center justify-center text-yt-muted hover:text-yt-text hover:border-yt-text transition-colors"
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
       </div>
-
-      {/* Genre chips — scrollable */}
-      <div className="flex gap-2 overflow-x-auto scrollbar-hide px-6 mb-4">
-        {GENRES.map((g, i) => (
-          <button
-            key={g.label}
-            onClick={() => setSelectedIdx(i)}
-            className={`flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              i === selectedIdx
-                ? "bg-yt-text text-white"
-                : "bg-yt-elevated text-yt-muted hover:bg-yt-border hover:text-yt-text"
-            }`}
-          >
-            {g.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Song grid — 3 columns × 4 rows */}
-      {loading ? (
-        <div className="flex gap-2 px-6">
-          {[0, 1, 2].map((ci) => (
-            <div key={ci} className="flex-1 flex flex-col gap-1">
-              {[0, 1, 2, 3].map((i) => <SkeletonRow key={i} />)}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <>
-          <div className="flex gap-2 px-6">
-            {cols.map((col, ci) => (
-              <div key={ci} className="flex-1 flex flex-col gap-1 min-w-0">
-                {col.map((track) => (
-                  <TrackCard key={track.video_id} track={track} onPlay={() => onPlayTrack(track)} />
-                ))}
-              </div>
-            ))}
-          </div>
-          {songs.length > 0 && (
-            <div className="flex justify-start mt-2 px-6">
-              <button
-                onClick={() => songs.forEach((t) => onPlayTrack(t))}
-                className="text-sm text-yt-muted hover:text-yt-text transition-colors"
-              >
-                Play all
-              </button>
-            </div>
-          )}
-        </>
-      )}
+      {FEATURED_GENRES.map((genre, i) => (
+        <GenreBlock
+          key={genre.label}
+          genre={genre}
+          loadDelay={i * 400}   // stagger requests 400ms apart
+          onPlayTrack={onPlayTrack}
+        />
+      ))}
     </section>
   );
 }
@@ -531,8 +514,8 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
           </section>
         )}
 
-        {/* Genre section — YouTube Music "Heard in Shorts" style */}
-        <GenreSection onPlayTrack={onPlayTrack} seenIds={seenIds} />
+        {/* Genre section — vertical, one block per genre */}
+        <GenreSection onPlayTrack={onPlayTrack} />
       </div>
 
       {/* Divider */}
