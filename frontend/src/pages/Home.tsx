@@ -109,6 +109,13 @@ function pickRandom<T>(arr: T[], n: number): T[] {
   return [...arr].sort(() => Math.random() - 0.5).slice(0, n);
 }
 
+/** Format duration seconds → "3:45" */
+function fmtDur(secs: number): string {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 /** Format a raw YouTube view count into "3.1B plays", "460M plays", "307K plays" */
 function formatPlays(count?: number): string {
   if (!count || count < 1000) return "";
@@ -117,13 +124,19 @@ function formatPlays(count?: number): string {
   return `${Math.round(count / 1_000)}K plays`;
 }
 
-const PLAYLIST_TITLE_FILTER = /\b(top\s*\d+|playlist|compilation|best of|greatest hits|collection|nonstop|mix|vol\.|part \d)/i;
+/**
+ * Filters out:
+ *  - Playlists/compilations (top N, nonstop, best of, etc.)
+ *  - Comparison / chart / statistics videos (vs, dynamic graph, bar race, etc.)
+ *  - Non-music content (reaction, interview, behind the scenes, etc.)
+ */
+const NON_MUSIC_FILTER = /\b(top\s*\d+|playlist|compilation|best\s+of|greatest\s+hits|collection|nonstop|megamix|vol\.|part\s+\d+|\bvs\.?\b|versus\b|dynamic\s+graph|bar\s+(?:chart|race)|statistics\b|reaction\b|interview\b|behind\s+the\s+scenes|making\s+of|documentary\b|ranked\s+(?:chart|race)|#shorts?)\b/i;
 const MV_TITLE_PATTERN = /(official\s*(m\/?v|music\s*video|video)|music\s*video|\bm\/v\b|\bpv\b|官方\s*mv|뮤직\s*비디오)/i;
 
 function isLikelySingleTrack(track: Track): boolean {
-  if (track.duration < 60) return false;
-  if (track.duration > 600) return false;
-  if (PLAYLIST_TITLE_FILTER.test(track.title)) return false;
+  if (track.duration < 120) return false;  // minimum 2 minutes
+  if (track.duration > 600) return false;  // maximum 10 minutes
+  if (NON_MUSIC_FILTER.test(track.title)) return false;
   return true;
 }
 function isLikelyMV(track: Track): boolean {
@@ -133,7 +146,8 @@ function isLikelyMV(track: Track): boolean {
 // ─── Shared TrackCard ─────────────────────────────────────────────────────────
 function TrackCard({ track, onPlay }: { track: Track; onPlay: () => void }) {
   const plays = formatPlays(track.view_count);
-  const sub = [track.artist, plays, track.album].filter(Boolean).join(" · ");
+  // Duration is always available; plays and album are optional extras from yt-dlp
+  const sub = [track.artist, fmtDur(track.duration), plays, track.album].filter(Boolean).join(" · ");
   return (
     <div
       className="flex items-center gap-3 p-2 rounded-lg hover:bg-yt-elevated transition-colors cursor-pointer group"
