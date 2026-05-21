@@ -380,16 +380,20 @@ function GenreSection({ onPlayTrack }: { onPlayTrack: (t: Track) => void }) {
         <h2 className="text-lg font-bold text-yt-text">Browse by genre</h2>
       </div>
 
-      {/* Quick genre navigation chips */}
-      <div className="flex gap-2 overflow-x-auto scrollbar-hide px-6 mb-6 pb-1">
-        {GENRES.map((g) => (
-          <button
-            key={g.label}
-            onClick={() => navigate(`/search?q=${encodeURIComponent(g.query)}`)}
-            className="flex-shrink-0 px-4 py-1.5 rounded-full bg-yt-elevated text-sm text-yt-muted hover:bg-yt-border hover:text-yt-text transition-colors"
-          >
-            {g.label}
-          </button>
+      {/* Quick genre navigation chips — 2 rows */}
+      <div className="px-6 mb-6 flex flex-col gap-2">
+        {[GENRES.slice(0, 7), GENRES.slice(7)].map((row, ri) => (
+          <div key={ri} className="flex gap-2 flex-wrap">
+            {row.map((g) => (
+              <button
+                key={g.label}
+                onClick={() => navigate(`/search?q=${encodeURIComponent(g.query)}`)}
+                className="px-4 py-1.5 rounded-full bg-yt-elevated text-sm text-yt-muted hover:bg-yt-border hover:text-yt-text transition-colors"
+              >
+                {g.label}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
 
