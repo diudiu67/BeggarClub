@@ -86,7 +86,10 @@ async def send_owner_dm(message: str):
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    "options": "-vn",
+    # -vn        strip video track
+    # -ar 48000  resample to 48 kHz (Discord's native rate — avoids quality-loss double-resample)
+    # -ac 2      stereo output
+    "options": "-vn -ar 48000 -ac 2",
 }
 
 
@@ -442,7 +445,7 @@ async def seek_to(guild_id: str, position: float):
                 f"-reconnect 1 -reconnect_delay_max 5"
                 f" -ss {int(position)}"
             ),
-            "options": "-vn",
+            "options": "-vn -ar 48000 -ac 2",
         }
         print(f"[Seek] Starting FFmpegPCMAudio with -ss {int(position)} (no reconnect_streamed)")
         source = discord.FFmpegPCMAudio(track.stream_url, **seek_opts)
@@ -451,7 +454,10 @@ async def seek_to(guild_id: str, position: float):
         gp.started_at = time.time() - position
         print(f"[Seek] voice_client.play() called, is_playing={gp.voice_client.is_playing()}")
     else:
-        source = discord.FFmpegPCMAudio(track.stream_url, **FFMPEG_OPTIONS)
+        source = discord.FFmpegPCMAudio(track.stream_url, **{
+            "before_options": "-reconnect 1 -reconnect_delay_max 5",
+            "options": "-vn -ar 48000 -ac 2",
+        })
         source = discord.PCMVolumeTransformer(source, volume=gp.volume)
         gp.voice_client.play(source, after=make_after_play(gen, "seek@0"))
         gp.started_at = time.time()

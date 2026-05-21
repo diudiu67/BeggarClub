@@ -5,7 +5,17 @@ from googleapiclient.discovery import build
 from config import settings
 
 YDL_OPTIONS = {
-    "format": "bestaudio/best",
+    # Prefer the highest-bitrate audio-only stream.
+    # YouTube typically offers WebM/Opus ~160 kbps (itag 251) or m4a/AAC 128 kbps (itag 140).
+    # We try in order: high-bitrate webm → high-bitrate m4a → any webm → any m4a → anything.
+    "format": (
+        "bestaudio[ext=webm][abr>=128]"
+        "/bestaudio[ext=m4a][abr>=128]"
+        "/bestaudio[ext=webm]"
+        "/bestaudio[ext=m4a]"
+        "/bestaudio"
+        "/best"
+    ),
     "quiet": True,
     "no_warnings": True,
     "source_address": "0.0.0.0",
