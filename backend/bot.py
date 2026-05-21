@@ -86,10 +86,11 @@ async def send_owner_dm(message: str):
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    # -vn        strip video track
-    # -ar 48000  resample to 48 kHz (Discord's native rate — avoids quality-loss double-resample)
-    # -ac 2      stereo output
-    "options": "-vn -ar 48000 -ac 2",
+    # -vn: strip video track.
+    # discord.py already appends -f s16le -ar 48000 -ac 2 internally,
+    # so do NOT add -ar/-ac here — duplicates cause malformed audio output
+    # that makes Discord kick the bot from the voice channel.
+    "options": "-vn",
 }
 
 # Maximum Opus encoder bitrate discord.py supports (512 kbps).
@@ -460,7 +461,7 @@ async def seek_to(guild_id: str, position: float):
                 f"-reconnect 1 -reconnect_delay_max 5"
                 f" -ss {int(position)}"
             ),
-            "options": "-vn -ar 48000 -ac 2",
+            "options": "-vn",
         }
         print(f"[Seek] Starting FFmpegPCMAudio with -ss {int(position)} (no reconnect_streamed)")
         source = discord.FFmpegPCMAudio(track.stream_url, **seek_opts)
@@ -471,7 +472,7 @@ async def seek_to(guild_id: str, position: float):
     else:
         source = discord.FFmpegPCMAudio(track.stream_url, **{
             "before_options": "-reconnect 1 -reconnect_delay_max 5",
-            "options": "-vn -ar 48000 -ac 2",
+            "options": "-vn",
         })
         source = discord.PCMVolumeTransformer(source, volume=gp.volume)
         _play(gp.voice_client, source, after=make_after_play(gen, "seek@0"))
