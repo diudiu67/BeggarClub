@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str = ""
     R2_PUBLIC_URL: str = ""
     GALLERY_CHANNEL_IDS: str = ""
+    OWNER_ID: int = 0
 
     @property
     def gallery_channel_ids(self) -> list[int]:

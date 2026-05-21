@@ -22,6 +22,8 @@ _vfh.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%Y-%m-%
 _vlog.addHandler(_vfh)
 _vlog.info("=== bot.py loaded ===")
 
+OWNER_ID = settings.OWNER_ID
+
 
 def _load_opus():
     if discord.opus.is_loaded():
@@ -68,6 +70,19 @@ intents.message_content = True
 intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+async def send_owner_dm(message: str):
+    """Send a DM alert to the bot owner. Safe to call from any async context."""
+    if not OWNER_ID or not bot.is_ready():
+        return
+    try:
+        user = await bot.fetch_user(OWNER_ID)
+        dm   = await user.create_dm()
+        await dm.send(message)
+        _vlog.info(f"Owner DM sent: {message[:80]}")
+    except Exception as e:
+        _vlog.info(f"send_owner_dm failed: {e}")
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -122,6 +137,11 @@ async def on_message(message: discord.Message):
             print(f"[Gallery] Saved {attachment.filename} from {message.author.display_name}")
         except Exception as e:
             print(f"[Gallery] Failed to process attachment: {e}")
+            asyncio.create_task(send_owner_dm(
+                f"⚠️ **[R2 UPLOAD FAILED]**\n"
+                f"Gallery upload failed for `{attachment.filename}`.\n"
+                f"Error: {str(e)[:200]}"
+            ))
 
 
 @bot.command(name="web", aliases=["player", "ui", "link"])
@@ -167,8 +187,15 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 
     gp._last_reconnect_attempt = now
     channel_id = str(before.channel.id)
-    _vlog.info(f"Unexpected disconnect from #{before.channel.name} — scheduling rejoin in 5s  track={gp.current.title[:40] if gp.current else 'None'}")
+    track_name = gp.current.title[:50] if gp.current else "Nothing"
+    _vlog.info(f"Unexpected disconnect from #{before.channel.name} — scheduling rejoin in 5s  track={track_name}")
     asyncio.create_task(_rejoin_and_resume(guild_id, channel_id, gp.current, gp.started_at))
+    asyncio.create_task(send_owner_dm(
+        f"⚠️ **[VOICE DISCONNECTED]**\n"
+        f"Bot was unexpectedly kicked from **#{before.channel.name}**.\n"
+        f"Now playing: {track_name}\n"
+        f"Attempting to rejoin automatically in 5s..."
+    ))
 
 
 @bot.event
@@ -247,6 +274,11 @@ async def _rejoin_and_resume(guild_id: str, channel_id: str, track, started_at: 
     success, msg = await join_channel(guild_id, channel_id)
     _vlog.info(f"  join_channel result: success={success}  msg={msg}")
     if not success:
+        asyncio.create_task(send_owner_dm(
+            f"❌ **[REJOIN FAILED]**\n"
+            f"Could not rejoin voice channel after disconnect.\n"
+            f"Reason: {msg[:200]}"
+        ))
         return
 
     if track:
@@ -294,7 +326,17 @@ async def play_track(guild_id: str, track: Track):
         return
 
     if not track.stream_url:
-        track.stream_url, _ = await get_stream_url(track.video_id)
+        try:
+            track.stream_url, _ = await get_stream_url(track.video_id)
+        except Exception as e:
+            _vlog.info(f"yt-dlp failed for {track.video_id}: {e}")
+            asyncio.create_task(send_owner_dm(
+                f"⚠️ **[STREAM FETCH FAILED]**\n"
+                f"yt-dlp could not get stream URL for:\n"
+                f"**{track.title[:80]}**\n"
+                f"Error: {str(e)[:150]}"
+            ))
+            return
 
     # When called directly (not via _on_song_end), save the outgoing track to history.
     # _on_song_end clears gp.current before calling us, so this only fires on manual plays.
@@ -500,6 +542,11 @@ async def _on_song_end(guild_id: str):
         except Exception as e:
             print(f"[Bot] Error playing next track: {e}")
             await gp.broadcast("stopped")
+            asyncio.create_task(send_owner_dm(
+                f"⚠️ **[PLAYBACK ERROR]**\n"
+                f"Failed to play next track.\n"
+                f"Error: {str(e)[:200]}"
+            ))
     elif gp.autoplay and old_track:
         # Queue empty — fetch fresh recommendations to continue
         seed_id = old_track.video_id
