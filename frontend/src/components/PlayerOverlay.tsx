@@ -408,11 +408,35 @@ export default function PlayerOverlay({
           {/* Tab content */}
           <div className="flex-1 overflow-y-auto">
             {tab === "upnext" && (
-              queue.length === 0 ? (
-                <p className="text-sm text-yt-muted text-center mt-10 px-4">Queue is empty</p>
-              ) : (
-                <ul className="p-3 space-y-1">
-                  {queue.map((track, i) => (
+              <ul className="p-3 space-y-1">
+                {/* ── Currently playing ── */}
+                {current && (
+                  <li className="relative flex items-center gap-3 p-2 rounded-lg mb-2 overflow-hidden bg-white/[0.06] border border-white/10">
+                    {/* Red accent bar on left edge */}
+                    <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-yt-red rounded-l-lg" />
+                    <img
+                      src={current.thumbnail || `https://i.ytimg.com/vi/${current.video_id}/mqdefault.jpg`}
+                      alt=""
+                      className="w-10 h-10 rounded object-cover flex-shrink-0 bg-yt-elevated ml-1"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src =
+                          `https://i.ytimg.com/vi/${current.video_id}/mqdefault.jpg`;
+                      }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-semibold text-yt-red uppercase tracking-wider mb-0.5">Now Playing</p>
+                      <p className="text-sm font-medium text-yt-text truncate">{current.title}</p>
+                      <p className="text-xs text-yt-muted truncate">{current.artist}</p>
+                    </div>
+                    <span className="text-xs text-yt-muted flex-shrink-0">{fmt(current.duration)}</span>
+                  </li>
+                )}
+
+                {/* ── Queue ── */}
+                {queue.length === 0 ? (
+                  <p className="text-sm text-yt-muted text-center mt-6 px-4">Queue is empty</p>
+                ) : (
+                  queue.map((track, i) => (
                     <li
                       key={`${track.video_id}-${i}`}
                       onClick={() => handlePlayUpNext(track, i)}
@@ -439,9 +463,9 @@ export default function PlayerOverlay({
                         <X size={13} />
                       </button>
                     </li>
-                  ))}
-                </ul>
-              )
+                  ))
+                )}
+              </ul>
             )}
 
             {tab === "lyrics" && (
