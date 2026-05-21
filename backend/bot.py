@@ -92,6 +92,21 @@ FFMPEG_OPTIONS = {
     "options": "-vn -ar 48000 -ac 2",
 }
 
+# Maximum Opus encoder bitrate discord.py supports (512 kbps).
+# Discord's server channel cap (96 / 128 / 256 / 384 kbps depending on boost level)
+# will clip it server-side, so setting this to max means we always send the best
+# quality the channel allows without having to know the boost level.
+_OPUS_BITRATE_KBPS = 512
+
+
+def _play(vc: discord.VoiceClient, source, *, after) -> None:
+    """Start playback and push the Opus encoder to maximum bitrate."""
+    vc.play(source, after=after)
+    try:
+        vc.encoder.set_bitrate(_OPUS_BITRATE_KBPS)
+    except Exception:
+        pass
+
 
 async def _save_gallery_item(item_data: dict):
     """Run on FastAPI loop — saves a gallery item to the database."""
@@ -371,7 +386,7 @@ async def play_track(guild_id: str, track: Track):
         import bot_runner
         asyncio.run_coroutine_threadsafe(_on_song_end(guild_id), bot_runner.get_bot_loop())
 
-    gp.voice_client.play(source, after=after_play)
+    _play(gp.voice_client, source, after=after_play)
     await gp.broadcast("now_playing")
 
     # Keep Up Next topped up: refill whenever queue drops below 10
@@ -450,7 +465,7 @@ async def seek_to(guild_id: str, position: float):
         print(f"[Seek] Starting FFmpegPCMAudio with -ss {int(position)} (no reconnect_streamed)")
         source = discord.FFmpegPCMAudio(track.stream_url, **seek_opts)
         source = discord.PCMVolumeTransformer(source, volume=gp.volume)
-        gp.voice_client.play(source, after=make_after_play(gen, f"seek@{int(position)}"))
+        _play(gp.voice_client, source, after=make_after_play(gen, f"seek@{int(position)}"))
         gp.started_at = time.time() - position
         print(f"[Seek] voice_client.play() called, is_playing={gp.voice_client.is_playing()}")
     else:
@@ -459,7 +474,7 @@ async def seek_to(guild_id: str, position: float):
             "options": "-vn -ar 48000 -ac 2",
         })
         source = discord.PCMVolumeTransformer(source, volume=gp.volume)
-        gp.voice_client.play(source, after=make_after_play(gen, "seek@0"))
+        _play(gp.voice_client, source, after=make_after_play(gen, "seek@0"))
         gp.started_at = time.time()
 
     await gp.broadcast("now_playing")
@@ -491,7 +506,7 @@ async def _verify_seek(guild_id: str, gen: int, track: Track):
             import bot_runner
             asyncio.run_coroutine_threadsafe(_on_song_end(guild_id), bot_runner.get_bot_loop())
 
-        gp.voice_client.play(source, after=after_play)
+        _play(gp.voice_client, source, after=after_play)
         gp.started_at = time.time()
         await gp.broadcast("now_playing")
 
