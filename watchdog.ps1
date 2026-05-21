@@ -35,29 +35,36 @@ $GITHUB_TOKEN = $envVars["GITHUB_TOKEN"]
 $BOT_TOKEN    = $envVars["DISCORD_TOKEN"]
 $OWNER_ID     = $envVars["OWNER_ID"]
 
-# ── Discord DM ────────────────────────────────────────────────────────────────
+# ── Discord DM (with retry) ───────────────────────────────────────────────────
 function Send-DiscordDM($message) {
     if (-not $BOT_TOKEN -or -not $OWNER_ID) {
         Write-Log "Discord DM skipped - BOT_TOKEN or OWNER_ID missing"
         return
     }
-    try {
-        $headers = @{
-            "Authorization" = "Bot $BOT_TOKEN"
-            "Content-Type"  = "application/json"
-        }
-        # Step 1: open DM channel with owner
-        $dmBody    = @{ recipient_id = $OWNER_ID } | ConvertTo-Json
-        $dmChannel = Invoke-RestMethod -Uri "https://discord.com/api/v10/users/@me/channels" `
-                         -Method Post -Headers $headers -Body $dmBody
-        # Step 2: send message
-        $msgBody = @{ content = $message } | ConvertTo-Json
-        Invoke-RestMethod -Uri "https://discord.com/api/v10/channels/$($dmChannel.id)/messages" `
-            -Method Post -Headers $headers -Body $msgBody | Out-Null
-        Write-Log "Discord DM sent"
-    } catch {
-        Write-Log "Discord DM FAILED: $_"
+    $headers = @{
+        "Authorization" = "Bot $BOT_TOKEN"
+        "Content-Type"  = "application/json"
+        "User-Agent"    = "DiscordBot (BeggarClubWatchdog, 1.0)"
     }
+    $maxAttempts = 3
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            # Step 1: open DM channel
+            $dmBody    = @{ recipient_id = "$OWNER_ID" } | ConvertTo-Json
+            $dmChannel = Invoke-RestMethod -Uri "https://discord.com/api/v10/users/@me/channels" `
+                             -Method Post -Headers $headers -Body $dmBody -ErrorAction Stop
+            # Step 2: send message
+            $msgBody = @{ content = $message } | ConvertTo-Json
+            Invoke-RestMethod -Uri "https://discord.com/api/v10/channels/$($dmChannel.id)/messages" `
+                -Method Post -Headers $headers -Body $msgBody -ErrorAction Stop | Out-Null
+            Write-Log "Discord DM sent (attempt $attempt)"
+            return
+        } catch {
+            Write-Log "Discord DM attempt $attempt FAILED: $_"
+            if ($attempt -lt $maxAttempts) { Start-Sleep -Seconds 10 }
+        }
+    }
+    Write-Log "Discord DM gave up after $maxAttempts attempts"
 }
 
 # ── Crash loop tracker ────────────────────────────────────────────────────────
@@ -217,7 +224,7 @@ try {
     $freeGB  = [math]::Round($disk.Free / 1GB, 1)
     if ($usedPct -ge $DISK_WARN_PCT) {
         Write-Log "DISK WARNING: D: is $usedPct% full - $freeGB GB free"
-        Send-DiscordDM "⚠️ **[DISK WARNING]**`nD: drive is **$usedPct% full** with only **$freeGB GB remaining**.`nPlease clean up files to prevent a server crash."
+        Send-DiscordDM "[DISK WARNING] D: drive is $usedPct% full with only $freeGB GB remaining. Please clean up files to prevent a server crash."
     }
 } catch {
     Write-Log "Disk check failed: $_"
@@ -249,7 +256,7 @@ if (Test-Path $cookiePath) {
     if ($cookieAge -gt $COOKIE_MAX_AGE) {
         $days = [math]::Round($cookieAge)
         Write-Log "Cookie file is $days days old - may be expired"
-        Send-DiscordDM "⚠️ **[COOKIE WARNING]**`nyoutube_cookies.txt is **$days days old** and may be expired.`nYouTube playback might start failing. Please refresh your cookies."
+        Send-DiscordDM "[COOKIE WARNING] youtube_cookies.txt is $days days old and may be expired. YouTube playback might start failing. Please refresh your cookies."
     }
 }
 
@@ -262,24 +269,28 @@ try {
 
 if (-not $uvicornOk) {
     Write-Log "Uvicorn not responding on :8080"
-    # Read last error for diagnosis
     $lastErr = ""
     if (Test-Path "$backendDir\bot_err.log") {
-        $lastErr = (Get-Content "$backendDir\bot_err.log" -ErrorAction SilentlyContinue | Select-Object -Last 5) -join "`n"
+        $lastErr = (Get-Content "$backendDir\bot_err.log" -ErrorAction SilentlyContinue | Select-Object -Last 5) -join " | "
     }
     if (Test-CanRestart $tracker "uvicorn") {
         Stop-Port8080
-        $restarted = Start-Uvicorn
+        $restarted  = Start-Uvicorn
+        $restartNum = $tracker["uvicorn_count"]
         if ($restarted) {
-            Write-Log "Uvicorn restart #$($tracker['uvicorn_count']) succeeded"
-            Send-DiscordDM "🔄 **[BACKEND RESTARTED]**`nUvicorn was not responding on :8080.`nRestart **#$($tracker['uvicorn_count'])** - Service restored successfully.$(if ($lastErr) {"`n``````$lastErr``````"})"
+            Write-Log "Uvicorn restart #$restartNum succeeded"
+            $dmMsg = "[BACKEND RESTARTED] Uvicorn was not responding on :8080. Restart #$restartNum - Service restored."
+            if ($lastErr) { $dmMsg = $dmMsg + "`nLast error: " + $lastErr }
+            Send-DiscordDM $dmMsg
         } else {
-            Write-Log "Uvicorn restart #$($tracker['uvicorn_count']) FAILED"
-            Send-DiscordDM "❌ **[BACKEND FAILED TO RESTART]**`nUvicorn restart **#$($tracker['uvicorn_count'])** did not recover.`nManual intervention required.$(if ($lastErr) {"`n``````$lastErr``````"})"
+            Write-Log "Uvicorn restart #$restartNum FAILED"
+            $dmMsg = "[BACKEND FAILED] Uvicorn restart #$restartNum did not recover. Manual intervention required."
+            if ($lastErr) { $dmMsg = $dmMsg + "`nLast error: " + $lastErr }
+            Send-DiscordDM $dmMsg
         }
     } else {
         Write-Log "Uvicorn crash loop detected - auto-restart suspended"
-        Send-DiscordDM "🚨 **[BACKEND CRASH LOOP]**`nUvicorn has crashed **$MAX_RESTARTS times** in 10 minutes.`nAuto-restart suspended — please check manually."
+        Send-DiscordDM "[BACKEND CRASH LOOP] Uvicorn has crashed $MAX_RESTARTS times in 10 minutes. Auto-restart suspended - please check manually."
     }
     exit
 }
@@ -293,20 +304,21 @@ if (-not $cfProcess) {
     Write-Log "cloudflared not running"
     if (Test-CanRestart $tracker "cloudflared") {
         $newUrl = Start-Tunnel
+        $n = $tracker["cloudflared_count"]
         if ($newUrl) {
             Update-GitHubPages $newUrl
-            Send-DiscordDM "🔄 **[TUNNEL RESTARTED]**`nCloudflared process was not running.`nRestart **#$($tracker['cloudflared_count'])**.`nNew URL: $newUrl"
+            Send-DiscordDM "[TUNNEL RESTARTED] Cloudflared was not running. Restart #$n. New URL: $newUrl"
         } else {
-            Send-DiscordDM "❌ **[TUNNEL FAILED]**`nCloudflared restart **#$($tracker['cloudflared_count'])** failed — no URL obtained."
+            Send-DiscordDM "[TUNNEL FAILED] Cloudflared restart #$n failed - no URL obtained."
         }
     } else {
         Write-Log "Cloudflared crash loop detected - auto-restart suspended"
-        Send-DiscordDM "🚨 **[TUNNEL CRASH LOOP]**`nCloudflared has failed **$MAX_RESTARTS times** in 10 minutes.`nAuto-restart suspended — please check manually."
+        Send-DiscordDM "[TUNNEL CRASH LOOP] Cloudflared has failed $MAX_RESTARTS times in 10 minutes. Auto-restart suspended - please check manually."
     }
     exit
 }
 
-# ── 7. Tunnel URL check ───────────────────────────────────────────────────────
+# -- Tunnel URL check --
 $currentUrl = Get-TunnelUrl
 if (-not $currentUrl) {
     Write-Log "cloudflared running but no tunnel URL found - restarting"
@@ -314,19 +326,20 @@ if (-not $currentUrl) {
     Start-Sleep -Seconds 2
     if (Test-CanRestart $tracker "cloudflared") {
         $newUrl = Start-Tunnel
+        $n = $tracker["cloudflared_count"]
         if ($newUrl) {
             Update-GitHubPages $newUrl
-            Send-DiscordDM "🔄 **[TUNNEL RESTARTED]**`nTunnel URL was missing from logs.`nRestart **#$($tracker['cloudflared_count'])**.`nNew URL: $newUrl"
+            Send-DiscordDM "[TUNNEL RESTARTED] Tunnel URL was missing from logs. Restart #$n. New URL: $newUrl"
         } else {
-            Send-DiscordDM "❌ **[TUNNEL FAILED]**`nCloudflared restart **#$($tracker['cloudflared_count'])** failed — no URL obtained."
+            Send-DiscordDM "[TUNNEL FAILED] Cloudflared restart #$n failed - no URL obtained."
         }
     } else {
-        Send-DiscordDM "🚨 **[TUNNEL CRASH LOOP]**`nCloudflared has failed **$MAX_RESTARTS times** in 10 minutes.`nAuto-restart suspended — please check manually."
+        Send-DiscordDM "[TUNNEL CRASH LOOP] Cloudflared has failed $MAX_RESTARTS times in 10 minutes. Auto-restart suspended - please check manually."
     }
     exit
 }
 
-# ── 8. Tunnel health check (external) ────────────────────────────────────────
+# -- Tunnel health check (external) --
 try {
     $resp = Invoke-WebRequest -Uri "$currentUrl/api/health" -UseBasicParsing -TimeoutSec 15 -ErrorAction Stop
     if ($resp.StatusCode -eq 200) {
@@ -336,19 +349,20 @@ try {
     }
 } catch {}
 
-# Tunnel URL exists but not responding
+# Tunnel URL exists but not responding - restart
 Write-Log "Tunnel not responding ($currentUrl) - restarting cloudflared"
 Stop-Process -Name cloudflared* -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 if (Test-CanRestart $tracker "cloudflared") {
     $newUrl = Start-Tunnel
+    $n = $tracker["cloudflared_count"]
     if ($newUrl) {
         Update-GitHubPages $newUrl
-        Send-DiscordDM "🔄 **[TUNNEL RESTARTED]**`nTunnel was not responding at $currentUrl.`nRestart **#$($tracker['cloudflared_count'])**.`nNew URL: $newUrl"
+        Send-DiscordDM "[TUNNEL RESTARTED] Tunnel was not responding at $currentUrl. Restart #$n. New URL: $newUrl"
     } else {
-        Send-DiscordDM "❌ **[TUNNEL FAILED]**`nCloudflared restart **#$($tracker['cloudflared_count'])** failed — no URL obtained."
+        Send-DiscordDM "[TUNNEL FAILED] Cloudflared restart #$n failed - no URL obtained."
     }
 } else {
     Write-Log "Cloudflared crash loop detected - auto-restart suspended"
-    Send-DiscordDM "🚨 **[TUNNEL CRASH LOOP]**`nCloudflared has failed **$MAX_RESTARTS times** in 10 minutes.`nAuto-restart suspended — please check manually."
+    Send-DiscordDM "[TUNNEL CRASH LOOP] Cloudflared has failed $MAX_RESTARTS times in 10 minutes. Auto-restart suspended - please check manually."
 }
