@@ -10,7 +10,7 @@ import {
   pausePlayer, resumePlayer, skipTrack, previousTrack,
   shuffleQueue, toggleAutoplay, setVolume, seekTo,
   getRecommendations, playTrack, addToQueue, removeFromQueue,
-  addSongToPlaylist,
+  skipToQueueIndex, addSongToPlaylist,
 } from "../lib/api";
 
 interface Props {
@@ -184,9 +184,11 @@ export default function PlayerOverlay({
   const handleSkip = () => skipTrack(guildId).catch(console.error);
   const handlePrev = () => previousTrack(guildId).catch(console.error);
 
-  const handlePlayUpNext = (track: Track, index: number) => {
-    removeFromQueue(guildId, index)
-      .then(() => playTrack(guildId, track, true))
+  const handlePlayUpNext = (_track: Track, index: number) => {
+    // Skip to this queue position without clearing playlist context.
+    // skipToQueueIndex trims everything before the index then fires a skip,
+    // so _on_song_end naturally plays the target song next.
+    skipToQueueIndex(guildId, index)
       .then(onRefresh)
       .catch(console.error);
   };

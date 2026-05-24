@@ -36,6 +36,9 @@ export const addToQueue = (guild_id: string, track: Track) =>
 export const removeFromQueue = (guild_id: string, index: number) =>
   api.delete(`/player/queue/${guild_id}/${index}`);
 
+export const skipToQueueIndex = (guild_id: string, index: number) =>
+  api.post("/player/queue/skip-to", { guild_id }, { params: { index } });
+
 export const pausePlayer = (guild_id: string) =>
   api.post("/player/pause", { guild_id });
 

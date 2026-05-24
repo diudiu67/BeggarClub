@@ -121,6 +121,23 @@ async def remove_from_queue(guild_id: str, index: int):
     return {"ok": True}
 
 
+@router.post("/queue/skip-to")
+async def skip_to_queue_index(req: GuildRequest, index: int):
+    """Skip to a specific position in the queue without clearing playlist context.
+
+    Drops everything before `index` then skips the current song so
+    _on_song_end naturally plays gp.queue[0] (the target track).
+    playlist_context is intentionally NOT touched — curated playlist stays intact.
+    """
+    gp = player_manager.get(req.guild_id)
+    if index < 0 or index >= len(gp.queue):
+        raise HTTPException(status_code=400, detail="Invalid queue index")
+    # Trim everything before the target; target becomes the new head.
+    gp.queue = gp.queue[index:]
+    await bot_runner.run(discord_bot.skip(req.guild_id))
+    return {"ok": True}
+
+
 @router.post("/pause")
 async def pause(req: GuildRequest):
     await bot_runner.run(discord_bot.pause(req.guild_id))
