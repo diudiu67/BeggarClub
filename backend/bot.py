@@ -511,6 +511,10 @@ async def _prefetch_recs(guild_id: str):
     try:
         seed_id = gp.current.video_id
         recs = await get_recommendations(seed_id, max_results=50)
+        # Re-check after the await: playlist context may have been set while
+        # we were fetching, or autoplay may have been toggled off.
+        if gp.playlist_context or not gp.autoplay:
+            return
         added = False
         for rec in recs:
             vid = rec.get("video_id", "")
