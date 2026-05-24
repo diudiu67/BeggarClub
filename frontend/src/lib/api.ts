@@ -98,8 +98,18 @@ export const addSongToPlaylist = (playlistId: number, track: Track) =>
 export const removeSongFromPlaylist = (playlistId: number, songId: number) =>
   api.delete(`/playlists/${playlistId}/songs/${songId}`);
 
-export const playPlaylist = (playlistId: number, guild_id: string, shuffle = false) =>
-  api.post(`/playlists/${playlistId}/play`, { guild_id, shuffle });
+export const playPlaylist = (
+  playlistId: number,
+  guild_id: string,
+  shuffle = false,
+  start_video_id?: string,
+) => api.post(`/playlists/${playlistId}/play`, { guild_id, shuffle, start_video_id });
+
+export const playTracks = (guild_id: string, tracks: Track[]) =>
+  api.post("/player/play-batch", {
+    guild_id,
+    tracks: tracks.map((t) => ({ guild_id, ...t })),
+  });
 
 // Gallery
 export const getGalleryItems = (guild_id = "") =>

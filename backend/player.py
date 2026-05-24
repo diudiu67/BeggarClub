@@ -41,6 +41,11 @@ class GuildPlayer:
         self._play_generation: int = 0
         self._prefetching_recs: bool = False
         self.ws_clients: set[WebSocket] = set()
+        # Playlist context — set when a curated playlist is playing.
+        # Suppresses autoplay-radio injection while the playlist runs;
+        # cleared when the playlist ends so radio takes over.
+        self.playlist_context: bool = False
+        self.playlist_seed_ids: list[str] = []  # full playlist video_ids (for multi-seed extend)
         self._autoplay_fetcher = None
         # Voice reconnection
         self.last_voice_channel_id: Optional[str] = None   # last channel bot was in

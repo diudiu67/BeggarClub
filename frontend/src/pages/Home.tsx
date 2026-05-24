@@ -10,6 +10,7 @@ interface Props {
   guildId: string | null;
   onCreatePlaylist: () => void;
   onPlayTrack: (track: Track) => void;
+  onPlayTracks: (tracks: Track[]) => void;
 }
 
 // ─── Mood chips ───────────────────────────────────────────────────────────────
@@ -411,7 +412,7 @@ function GenreSection({ onPlayTrack }: { onPlayTrack: (t: Track) => void }) {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack }: Props) {
+export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack, onPlayTracks }: Props) {
   const navigate = useNavigate();
   const search   = (q: string) => navigate(`/search?q=${encodeURIComponent(q)}`);
 
@@ -629,7 +630,7 @@ export default function Home({ playlists, guildId, onCreatePlaylist, onPlayTrack
                 </div>
                 <div className="flex justify-start mt-2 px-6">
                   <button
-                    onClick={() => quickPicks.forEach((t) => onPlayTrack(t))}
+                    onClick={() => onPlayTracks(quickPicks)}
                     className="text-sm text-yt-muted hover:text-yt-text transition-colors"
                   >
                     Play all

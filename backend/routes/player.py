@@ -43,6 +43,11 @@ class QueueAddRequest(BaseModel):
     requested_by: str = ""
 
 
+class PlayBatchRequest(BaseModel):
+    guild_id: str
+    tracks: list[QueueAddRequest]
+
+
 @router.get("/state/{guild_id}")
 async def get_state(guild_id: str):
     gp = player_manager.get(guild_id)
@@ -69,7 +74,11 @@ async def play(req: PlayRequest):
 
     try:
         if req.play_now:
-            gp.queue.clear()  # Discard old queue so autoplay rebuilds around the new song
+            # Discard old queue so autoplay rebuilds around the new song.
+            # Also clear playlist context — this is a manual/search/home play, not a curated playlist.
+            gp.playlist_context = False
+            gp.playlist_seed_ids = []
+            gp.queue.clear()
             gp.queue.insert(0, track)
             next_track = gp.pop_next()
             if next_track:
@@ -178,6 +187,45 @@ async def get_history(guild_id: str):
     """Return the last 50 tracks played in this guild (most recent first)."""
     gp = player_manager.get(guild_id)
     return {"history": [t.to_dict() for t in reversed(gp.history)]}
+
+
+@router.post("/play-batch")
+async def play_batch(req: PlayBatchRequest):
+    """Queue a batch of tracks at once (e.g. Home 'Play all'). Not a playlist context."""
+    gp = player_manager.get(req.guild_id)
+
+    if not gp.voice_client or not gp.voice_client.is_connected():
+        raise HTTPException(
+            status_code=400,
+            detail="Bot is not in a voice channel. Select a voice channel from the dropdown first."
+        )
+
+    if not req.tracks:
+        raise HTTPException(status_code=400, detail="No tracks provided.")
+
+    gp.playlist_context = False
+    gp.playlist_seed_ids = []
+    gp.queue.clear()
+
+    for t in req.tracks:
+        gp.enqueue(Track(
+            video_id=t.video_id,
+            title=t.title,
+            artist=t.artist,
+            thumbnail=t.thumbnail,
+            duration=t.duration,
+            requested_by=t.requested_by,
+        ))
+
+    first = gp.pop_next()
+    if first:
+        try:
+            await bot_runner.run(discord_bot.play_track(req.guild_id, first))
+        except Exception as e:
+            gp.current = None
+            raise HTTPException(status_code=500, detail=f"Playback failed: {type(e).__name__}: {e}")
+
+    return {"ok": True, "queued": len(req.tracks)}
 
 
 @router.post("/stop")

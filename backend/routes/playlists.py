@@ -13,6 +13,7 @@ import time
 PLAYLIST_ICONS_DIR = Path(__file__).parent.parent / "playlist_icons"
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 MAX_ICON_SIZE = 5 * 1024 * 1024  # 5 MB
+MAX_PLAYLIST_SIZE = 500  # hard cap on songs per playlist
 
 router = APIRouter(prefix="/playlists", tags=["playlists"])
 
@@ -39,6 +40,7 @@ class AddSongRequest(BaseModel):
 class PlayPlaylistRequest(BaseModel):
     guild_id: str
     shuffle: bool = False
+    start_video_id: str | None = None  # if set, slice playlist starting from this song
 
 
 @router.get("")
@@ -164,6 +166,12 @@ async def add_song(playlist_id: int, req: AddSongRequest, db: AsyncSession = Dep
     )
     count = len(result.scalars().all())
 
+    if count >= MAX_PLAYLIST_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Playlist is full (max {MAX_PLAYLIST_SIZE} songs). Remove songs before adding more."
+        )
+
     song = PlaylistSong(
         playlist_id=playlist_id,
         video_id=req.video_id,
@@ -207,7 +215,7 @@ async def play_playlist(playlist_id: int, req: PlayPlaylistRequest, db: AsyncSes
     gp = player_manager.get(req.guild_id)
     gp.queue.clear()
 
-    tracks = [
+    all_tracks = [
         Track(
             video_id=s.video_id,
             title=s.title,
@@ -218,12 +226,29 @@ async def play_playlist(playlist_id: int, req: PlayPlaylistRequest, db: AsyncSes
         for s in songs
     ]
 
+    # Store the full (unshuffled) playlist as seeds for multi-seed auto-extend later.
+    seed_ids = [t.video_id for t in all_tracks]
+
     if req.shuffle:
         import random
-        random.shuffle(tracks)
+        random.shuffle(all_tracks)
+
+    # Slice from start_video_id if provided.
+    tracks = all_tracks
+    if req.start_video_id:
+        idx = next(
+            (i for i, t in enumerate(all_tracks) if t.video_id == req.start_video_id),
+            None,
+        )
+        if idx is not None:
+            tracks = all_tracks[idx:]
 
     for track in tracks:
         gp.enqueue(track)
+
+    # Mark playlist context so _prefetch_recs stays silent until the playlist ends.
+    gp.playlist_context = True
+    gp.playlist_seed_ids = seed_ids
 
     first = gp.pop_next()
     if first:

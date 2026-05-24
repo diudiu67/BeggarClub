@@ -502,6 +502,9 @@ async def _prefetch_recs(guild_id: str):
     gp = player_manager.get(guild_id)
     if not gp.current or not gp.autoplay:
         return
+    # While a curated playlist is active, don't inject radio recs into the queue.
+    if gp.playlist_context:
+        return
     if gp._prefetching_recs:
         return
     gp._prefetching_recs = True
@@ -555,14 +558,48 @@ async def _on_song_end(guild_id: str):
                 f"Failed to play next track.\n"
                 f"Error: {str(e)[:200]}"
             ))
-    elif gp.autoplay and old_track:
-        # Queue empty — fetch fresh recommendations to continue
-        seed_id = old_track.video_id
-        recs = await get_recommendations(seed_id, max_results=50)
-        for rec in recs:
-            if not any(t.video_id == rec["video_id"] for t in gp.history[-10:]):
-                new_track = Track(**{k: rec[k] for k in Track.__dataclass_fields__ if k in rec})
-                gp.queue.append(new_track)
+    elif gp.autoplay and (old_track or gp.playlist_seed_ids):
+        # Queue empty — build a recommendation pool to continue playback.
+        if gp.playlist_context and gp.playlist_seed_ids:
+            # End of curated playlist: seed from up to half the playlist (capped at 10)
+            # so recs are tied to the overall playlist vibe, not just the last song.
+            import random as _rand
+            k = min(max(1, len(gp.playlist_seed_ids) // 2), 10)
+            seed_ids = _rand.sample(gp.playlist_seed_ids, k)
+            playlist_vids = set(gp.playlist_seed_ids)
+        else:
+            seed_ids = [old_track.video_id] if old_track else []
+            playlist_vids = set()
+
+        seen_vids: set[str] = set()
+        pool: list[dict] = []
+        for sid in seed_ids:
+            try:
+                recs = await get_recommendations(sid, max_results=50)
+            except Exception:
+                continue
+            for rec in recs:
+                vid = rec.get("video_id", "")
+                if not vid or vid in seen_vids:
+                    continue
+                if any(t.video_id == vid for t in gp.history[-20:]):
+                    continue
+                if vid in playlist_vids:
+                    # Don't re-add songs the user already has in their playlist
+                    continue
+                seen_vids.add(vid)
+                pool.append(rec)
+
+        import random as _rand2
+        _rand2.shuffle(pool)
+        for rec in pool[:50]:
+            new_track = Track(**{k: rec[k] for k in Track.__dataclass_fields__ if k in rec})
+            gp.queue.append(new_track)
+
+        # Done with curated playlist — switch to regular radio mode for future _on_song_end calls.
+        gp.playlist_context = False
+        gp.playlist_seed_ids = []
+
         next_track = gp.pop_next()
         if next_track:
             await play_track(guild_id, next_track)

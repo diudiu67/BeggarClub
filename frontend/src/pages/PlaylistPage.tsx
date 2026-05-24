@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { Play, Shuffle, Loader2, Trash2, Plus, Search, X, Check, Camera } from "lucide-react";
 import type { PlaylistDetail, Playlist, Track } from "../types";
 import {
-  getPlaylist, playPlaylist, playTrack, addToQueue,
+  getPlaylist, playPlaylist, addToQueue,
   addSongToPlaylist, removeSongFromPlaylist, searchTracks, updatePlaylist, uploadPlaylistIcon,
 } from "../lib/api";
 import SongCard from "../components/SongCard";
@@ -129,7 +129,10 @@ export default function PlaylistPage({ guildId, playlists, onRefresh }: Props) {
           });
         }, 2000);
       })
-      .catch(console.error);
+      .catch((err) => {
+        const detail = err?.response?.data?.detail;
+        alert(detail || "Failed to add song.");
+      });
   };
 
   const handlePlayAll = (shuffle = false) => {
@@ -143,8 +146,9 @@ export default function PlaylistPage({ guildId, playlists, onRefresh }: Props) {
   };
 
   const handlePlay = (track: Track) => {
-    if (!guildId) return alert("Select a server first.");
-    playTrack(guildId, track, true)
+    if (!guildId || !id) return alert("Select a server first.");
+    // Play the playlist starting from this song (slice from here to end, then auto-extend).
+    playPlaylist(parseInt(id), guildId, false, track.video_id)
       .then(onRefresh)
       .catch((err) => {
         const detail = err?.response?.data?.detail;

@@ -5,7 +5,7 @@ import SplashScreen from "./components/SplashScreen";
 import {
   getGuilds, getVoiceChannels, joinChannel,
   getPlaylists, createPlaylist, deletePlaylist,
-  removeFromQueue, playTrack,
+  removeFromQueue, playTrack, playTracks,
 } from "./lib/api";
 import { usePlayer } from "./hooks/usePlayer";
 import Sidebar from "./components/Sidebar";
@@ -174,6 +174,9 @@ export default function App() {
                       onCreatePlaylist={handleCreatePlaylist}
                       onPlayTrack={(track) => {
                         if (selectedGuild) playTrack(selectedGuild.id, track).then(refresh).catch(console.error);
+                      }}
+                      onPlayTracks={(tracks) => {
+                        if (selectedGuild) playTracks(selectedGuild.id, tracks).then(refresh).catch(console.error);
                       }}
                     />
                   }
