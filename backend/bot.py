@@ -1,6 +1,7 @@
 import asyncio
 import glob
 import logging
+import random
 import time
 import uuid
 import discord
@@ -376,9 +377,15 @@ async def play_track(guild_id: str, track: Track):
     gp.voice_client.play(source, after=after_play)
     await gp.broadcast("now_playing")
 
-    # Keep Up Next topped up: refill whenever queue drops below 10
-    if gp.autoplay and len(gp.queue) < 10:
-        asyncio.create_task(_prefetch_recs(guild_id))
+    # Queue management after track starts.
+    if gp.autoplay:
+        if gp.playlist_context and len(gp.queue) == 0:
+            # This is the last song in the playlist — kick off recommendation
+            # pre-fetch NOW (concurrently) so the queue is ready before the
+            # song finishes, giving seamless continuous playback.
+            asyncio.create_task(_prefetch_playlist_end_extend(guild_id))
+        elif not gp.playlist_context and len(gp.queue) < 10:
+            asyncio.create_task(_prefetch_recs(guild_id))
 
 
 async def _prefetch_next_stream(guild_id: str):
@@ -535,6 +542,85 @@ async def _prefetch_recs(guild_id: str):
         gp._prefetching_recs = False
 
 
+async def _gather_recs_for_seeds(
+    seed_ids: list,
+    playlist_vids: set,
+    history_vids: set,
+    cap: int = 50,
+) -> list:
+    """Fetch recommendations for multiple seeds CONCURRENTLY and deduplicate.
+
+    Uses asyncio.gather so all yt-dlp calls run in parallel — fetching 10 seeds
+    takes ~the same time as 1 instead of 10× sequential.
+    """
+    results = await asyncio.gather(
+        *[get_recommendations(sid, max_results=50) for sid in seed_ids],
+        return_exceptions=True,
+    )
+    seen: set = set()
+    pool: list = []
+    for batch in results:
+        if isinstance(batch, Exception):
+            continue
+        for rec in batch:
+            vid = rec.get("video_id", "")
+            if not vid or vid in seen:
+                continue
+            if vid in history_vids:
+                continue
+            if vid in playlist_vids:
+                continue
+            seen.add(vid)
+            pool.append(rec)
+    random.shuffle(pool)
+    return pool[:cap]
+
+
+async def _prefetch_playlist_end_extend(guild_id: str):
+    """Pre-fetch end-of-playlist recommendations while the LAST song is still playing.
+
+    Triggered when play_track() detects playlist_context=True and queue is empty
+    (meaning the last playlist track just started). Runs concurrently in the
+    background so recommendations are queued before the song ends, ensuring
+    seamless continuous playback with no stop gap.
+    """
+    gp = player_manager.get(guild_id)
+    if not gp.playlist_context or not gp.playlist_seed_ids or not gp.autoplay:
+        return
+    if gp._prefetching_recs:
+        return  # Already in progress
+
+    gp._prefetching_recs = True
+    try:
+        k = min(max(1, len(gp.playlist_seed_ids) // 2), 10)
+        seed_ids = random.sample(gp.playlist_seed_ids, k)
+        playlist_vids = set(gp.playlist_seed_ids)
+        history_vids = {t.video_id for t in gp.history[-20:]}
+
+        print(f"[PlaylistExtend] Pre-fetching with {k} seeds (concurrent)…", flush=True)
+        pool = await _gather_recs_for_seeds(seed_ids, playlist_vids, history_vids)
+
+        # Re-check after the awaits: user may have switched away from the playlist.
+        if not gp.playlist_context or not gp.autoplay:
+            return
+
+        if pool:
+            for rec in pool:
+                new_track = Track(**{k: rec[k] for k in Track.__dataclass_fields__ if k in rec})
+                gp.queue.append(new_track)
+            # Curated playlist is done — switch to radio mode for future _on_song_end calls.
+            gp.playlist_context = False
+            gp.playlist_seed_ids = []
+            await gp.broadcast("queue_updated")
+            print(f"[PlaylistExtend] Pre-fetched {len(pool)} tracks — queue ready.", flush=True)
+        else:
+            print("[PlaylistExtend] No recommendations found.", flush=True)
+    except Exception as e:
+        print(f"[PlaylistExtend] Error: {e}", flush=True)
+    finally:
+        gp._prefetching_recs = False
+
+
 async def _on_song_end(guild_id: str):
     gp = player_manager.get(guild_id)
     current_title = gp.current.title[:30] if gp.current else "None"
@@ -563,44 +649,42 @@ async def _on_song_end(guild_id: str):
                 f"Error: {str(e)[:200]}"
             ))
     elif gp.autoplay and (old_track or gp.playlist_seed_ids):
-        # Queue empty — build a recommendation pool to continue playback.
+        # Queue empty — need recommendations to continue.
+        #
+        # Happy path: _prefetch_playlist_end_extend already started while the
+        # last song was playing. If it's still in-flight, wait for it so we
+        # don't duplicate work. This is what gives seamless gapless playback.
+        if gp._prefetching_recs:
+            print("[SongEnd] Pre-fetch in progress — waiting up to 20s…", flush=True)
+            for _ in range(40):  # 40 × 0.5 s = 20 s max
+                await asyncio.sleep(0.5)
+                if not gp._prefetching_recs:
+                    break
+            next_track = gp.pop_next()
+            if next_track:
+                await play_track(guild_id, next_track)
+            else:
+                await gp.broadcast("stopped")
+            return
+
+        # Safety-net / fallback: pre-fetch wasn't triggered or failed
+        # (e.g. a very short last track). Do the multi-seed fetch now.
         if gp.playlist_context and gp.playlist_seed_ids:
-            # End of curated playlist: seed from up to half the playlist (capped at 10)
-            # so recs are tied to the overall playlist vibe, not just the last song.
-            import random as _rand
             k = min(max(1, len(gp.playlist_seed_ids) // 2), 10)
-            seed_ids = _rand.sample(gp.playlist_seed_ids, k)
+            seed_ids = random.sample(gp.playlist_seed_ids, k)
             playlist_vids = set(gp.playlist_seed_ids)
         else:
             seed_ids = [old_track.video_id] if old_track else []
             playlist_vids = set()
 
-        seen_vids: set[str] = set()
-        pool: list[dict] = []
-        for sid in seed_ids:
-            try:
-                recs = await get_recommendations(sid, max_results=50)
-            except Exception:
-                continue
-            for rec in recs:
-                vid = rec.get("video_id", "")
-                if not vid or vid in seen_vids:
-                    continue
-                if any(t.video_id == vid for t in gp.history[-20:]):
-                    continue
-                if vid in playlist_vids:
-                    # Don't re-add songs the user already has in their playlist
-                    continue
-                seen_vids.add(vid)
-                pool.append(rec)
+        history_vids = {t.video_id for t in gp.history[-20:]}
+        pool = await _gather_recs_for_seeds(seed_ids, playlist_vids, history_vids)
 
-        import random as _rand2
-        _rand2.shuffle(pool)
-        for rec in pool[:50]:
+        for rec in pool:
             new_track = Track(**{k: rec[k] for k in Track.__dataclass_fields__ if k in rec})
             gp.queue.append(new_track)
 
-        # Done with curated playlist — switch to regular radio mode for future _on_song_end calls.
+        # Done with curated playlist — switch to regular radio mode.
         gp.playlist_context = False
         gp.playlist_seed_ids = []
 
