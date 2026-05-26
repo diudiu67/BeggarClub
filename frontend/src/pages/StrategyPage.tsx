@@ -621,10 +621,12 @@ export default function StrategyPage({
   }
 
   return (
-    <div className={`flex-1 overflow-y-auto p-6 ${showForm ? "" : "snap-y snap-mandatory scroll-pt-6"}`}>
-      <div className="flex flex-col gap-6">
+    <div className="flex-1 flex flex-col overflow-hidden">
 
-        {/* Header */}
+      {/* ── Sticky header panel (title + toolbar + home tabs — never scrolls away) ── */}
+      <div className="flex-shrink-0 bg-yt-bg border-b border-yt-border px-6 pt-4 pb-3 flex flex-col gap-2 z-10">
+
+        {/* Row 1: page title + "New Post" button */}
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold text-yt-text">
             {selectedCategory
@@ -641,12 +643,89 @@ export default function StrategyPage({
           )}
         </div>
 
-        {/* Global error (e.g., fetch failed) */}
+        {/* Row 2: filter / sort toolbar */}
+        {!loading && (
+          <div className="flex flex-wrap items-center gap-2 bg-yt-surface border border-yt-border rounded-xl px-3 py-2">
+            {/* Text search */}
+            <div className="flex items-center gap-1.5 flex-1 min-w-[160px]">
+              <Search size={13} className="text-yt-muted flex-shrink-0" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search posts…"
+                className="flex-1 bg-transparent text-sm text-yt-text placeholder:text-yt-muted outline-none"
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="text-yt-muted hover:text-yt-text flex-shrink-0">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            {/* Media only toggle */}
+            <label className="flex items-center gap-1.5 text-xs text-yt-muted cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={mediaOnly}
+                onChange={(e) => setMediaOnly(e.target.checked)}
+                className="accent-current"
+              />
+              Media only
+            </label>
+
+            {/* Sort key */}
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              className="bg-yt-elevated text-yt-text text-xs rounded-lg px-2 py-1 outline-none border border-yt-border cursor-pointer"
+            >
+              <option value="manual">Manual</option>
+              <option value="date">Date</option>
+              <option value="author">Author</option>
+            </select>
+
+            {/* Sort direction */}
+            <button
+              onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+              className="flex items-center gap-1 bg-yt-elevated hover:bg-yt-border text-yt-text text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors"
+              title={sortDir === "asc" ? "Ascending" : "Descending"}
+            >
+              {sortDir === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+              {sortDir === "asc" ? "Asc" : "Desc"}
+            </button>
+          </div>
+        )}
+
+        {/* Row 3: home category tab pills (home view only) */}
+        {!loading && isHome && (
+          <div className="flex gap-2">
+            {CATEGORIES.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setHomeTab(c.id as "strategy" | "guildwar")}
+                className={`flex items-center gap-1.5 text-xs font-semibold px-4 py-1.5 rounded-full transition-all ${
+                  homeTab === c.id
+                    ? "bg-yt-text text-yt-bg shadow"
+                    : "bg-yt-elevated text-yt-muted hover:bg-yt-border hover:text-yt-text"
+                }`}
+              >
+                {c.emoji} {c.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+      </div>
+
+      {/* ── Scrollable posts area ── */}
+      <div className={`flex-1 overflow-y-auto px-6 py-4 ${showForm ? "" : "snap-y snap-mandatory scroll-pt-4"}`}>
+
+        {/* Global error */}
         {error && !showForm && <p className="text-xs text-red-400">{error}</p>}
 
         {/* Create form (admin only) */}
         {isAdmin && showForm && (
-          <form onSubmit={handleSubmit} className="bg-yt-surface rounded-2xl p-5 flex flex-col gap-3 border border-yt-border">
+          <form onSubmit={handleSubmit} className="bg-yt-surface rounded-2xl p-5 flex flex-col gap-3 border border-yt-border mb-4">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold text-yt-muted uppercase tracking-widest">New Post</p>
               <button type="button" onClick={closeForm} className="text-yt-muted hover:text-yt-text">
@@ -721,82 +800,12 @@ export default function StrategyPage({
           </form>
         )}
 
-        {/* Filter / sort toolbar */}
-        {!loading && (
-          <div className="flex flex-wrap items-center gap-2 bg-yt-surface border border-yt-border rounded-xl px-3 py-2">
-            {/* Text search */}
-            <div className="flex items-center gap-1.5 flex-1 min-w-[160px]">
-              <Search size={13} className="text-yt-muted flex-shrink-0" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search posts…"
-                className="flex-1 bg-transparent text-sm text-yt-text placeholder:text-yt-muted outline-none"
-              />
-              {search && (
-                <button onClick={() => setSearch("")} className="text-yt-muted hover:text-yt-text flex-shrink-0">
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-
-            {/* Media only toggle */}
-            <label className="flex items-center gap-1.5 text-xs text-yt-muted cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={mediaOnly}
-                onChange={(e) => setMediaOnly(e.target.checked)}
-                className="accent-current"
-              />
-              Media only
-            </label>
-
-            {/* Sort key */}
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              className="bg-yt-elevated text-yt-text text-xs rounded-lg px-2 py-1 outline-none border border-yt-border cursor-pointer"
-            >
-              <option value="manual">Manual</option>
-              <option value="date">Date</option>
-              <option value="author">Author</option>
-            </select>
-
-            {/* Sort direction */}
-            <button
-              onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
-              className="flex items-center gap-1 bg-yt-elevated hover:bg-yt-border text-yt-text text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors"
-              title={sortDir === "asc" ? "Ascending" : "Descending"}
-            >
-              {sortDir === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
-              {sortDir === "asc" ? "Asc" : "Desc"}
-            </button>
-          </div>
-        )}
-
         {/* Feed */}
         {loading ? (
           <p className="text-xs text-yt-muted">Loading…</p>
         ) : isHome ? (
-          /* Home view — tab switcher + pinned posts per category */
+          /* Home view — pinned posts (tab switcher is now in the sticky panel above) */
           <>
-            {/* Tab switcher */}
-            <div className="flex gap-2">
-              {CATEGORIES.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setHomeTab(c.id as "strategy" | "guildwar")}
-                  className={`flex items-center gap-1.5 text-xs font-semibold px-4 py-1.5 rounded-full transition-all ${
-                    homeTab === c.id
-                      ? "bg-yt-text text-yt-bg shadow"
-                      : "bg-yt-elevated text-yt-muted hover:bg-yt-border hover:text-yt-text"
-                  }`}
-                >
-                  {c.emoji} {c.label}
-                </button>
-              ))}
-            </div>
-
             {showPinBanner && (
               <div className="flex items-center gap-2 text-sm text-yt-muted bg-yt-surface border border-yt-border rounded-lg px-4 py-3">
                 <span>📌</span>
