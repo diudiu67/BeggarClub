@@ -32,7 +32,7 @@ export default function App() {
   const [voiceChannels, setVoiceChannels] = useState<VoiceChannel[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<VoiceChannel | null>(null);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [mode, setMode] = useState<Mode>("music");
+  const [mode, setMode] = useState<Mode>("strategy");
   const [showQueue, setShowQueue] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
@@ -71,7 +71,9 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const paramMode = params.get("mode");
     const paramMsg = params.get("msg");
-    if (paramMode === "strategy") {
+    if (paramMode === "music" || paramMode === "gallery" || paramMode === "admin") {
+      setMode(paramMode as Mode);
+    } else if (paramMode === "strategy") {
       setMode("strategy");
       if (paramMsg) setInitialStrategyMsgId(paramMsg);
     }

@@ -19,6 +19,12 @@ async def init_db():
             "ALTER TABLE gallery_items ADD COLUMN starred INTEGER DEFAULT 0",
             "ALTER TABLE strategy_posts ADD COLUMN pinned INTEGER DEFAULT 0",
             "ALTER TABLE strategy_posts ADD COLUMN source TEXT DEFAULT 'discord'",
+            # Round 12 backfill: admin-created posts predate the `source` column and
+            # got defaulted to 'discord' by the migration above. The `admin-` prefix is
+            # set only by routes/strategy.py:create_strategy_post, so it uniquely
+            # identifies web-created rows whose Discord dispatch never completed.
+            "UPDATE strategy_posts SET source = 'web' "
+            "WHERE message_id LIKE 'admin-%' AND (source IS NULL OR source = 'discord')",
         ]:
             try:
                 await conn.execute(text(sql))

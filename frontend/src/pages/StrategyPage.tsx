@@ -7,7 +7,7 @@ import {
   pinStrategyPost, editStrategyPost, type StrategyPost,
 } from "../lib/strategy";
 import { isAdminLoggedIn } from "../lib/admin";
-import { Trash2, ChevronUp, ChevronDown, ExternalLink, X, Plus, ImagePlus, ChevronLeft, ChevronRight, Play, Pencil } from "lucide-react";
+import { Trash2, ChevronUp, ChevronDown, ExternalLink, X, Plus, ImagePlus, ChevronLeft, ChevronRight, Play, Pencil, Search, ArrowUp, ArrowDown } from "lucide-react";
 import MarkdownEditor from "../components/MarkdownEditor";
 
 const CATEGORIES = [
@@ -29,12 +29,13 @@ function timeAgo(iso: string): string {
 // ─── Post card ────────────────────────────────────────────────────────────────
 
 function PostCard({
-  post, isAdmin, isFirst, isLast, onMoveUp, onMoveDown, onDelete, onUpdate,
+  post, isAdmin, isFirst, isLast, manualSort, onMoveUp, onMoveDown, onDelete, onUpdate,
 }: {
   post: StrategyPost;
   isAdmin: boolean;
   isFirst: boolean;
   isLast: boolean;
+  manualSort: boolean;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onDelete: () => void;
@@ -234,14 +235,18 @@ function PostCard({
             >
               📌
             </button>
-            <button onClick={onMoveUp} disabled={isFirst}
-              className="text-yt-muted hover:text-yt-text transition-colors disabled:opacity-20 p-1" title="Move up">
-              <ChevronUp size={14} />
-            </button>
-            <button onClick={onMoveDown} disabled={isLast}
-              className="text-yt-muted hover:text-yt-text transition-colors disabled:opacity-20 p-1" title="Move down">
-              <ChevronDown size={14} />
-            </button>
+            {manualSort && (
+              <>
+                <button onClick={onMoveUp} disabled={isFirst}
+                  className="text-yt-muted hover:text-yt-text transition-colors disabled:opacity-20 p-1" title="Move up">
+                  <ChevronUp size={14} />
+                </button>
+                <button onClick={onMoveDown} disabled={isLast}
+                  className="text-yt-muted hover:text-yt-text transition-colors disabled:opacity-20 p-1" title="Move down">
+                  <ChevronDown size={14} />
+                </button>
+              </>
+            )}
             <button onClick={onDelete}
               className="text-yt-muted hover:text-red-400 transition-colors p-1" title="Delete">
               <Trash2 size={14} />
@@ -401,6 +406,32 @@ export default function StrategyPage({
   const [previews, setPreviews] = useState<PreviewItem[]>([]);
   const [error, setError] = useState("");
   const [pendingScrollId, setPendingScrollId] = useState<number | null>(null);
+  const [homeTab, setHomeTab] = useState<"strategy" | "guildwar">("strategy");
+
+  // ── Filter / sort state (persisted in localStorage) ──────────────────────────
+  type SortKey = "manual" | "date" | "author";
+  type SortDir = "asc" | "desc";
+  type SourceFilter = "all" | "web" | "discord";
+
+  const [search, setSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(
+    () => (localStorage.getItem("strategySourceFilter") as SourceFilter) || "all"
+  );
+  const [sortKey, setSortKey] = useState<SortKey>(
+    () => (localStorage.getItem("strategySortKey") as SortKey) || "manual"
+  );
+  const [sortDir, setSortDir] = useState<SortDir>(
+    () => (localStorage.getItem("strategySortDir") as SortDir) || "desc"
+  );
+  const [mediaOnly, setMediaOnly] = useState<boolean>(
+    () => localStorage.getItem("strategyMediaOnly") === "1"
+  );
+
+  useEffect(() => { localStorage.setItem("strategySourceFilter", sourceFilter); }, [sourceFilter]);
+  useEffect(() => { localStorage.setItem("strategySortKey", sortKey); }, [sortKey]);
+  useEffect(() => { localStorage.setItem("strategySortDir", sortDir); }, [sortDir]);
+  useEffect(() => { localStorage.setItem("strategyMediaOnly", mediaOnly ? "1" : "0"); }, [mediaOnly]);
+
   const fileRef = useRef<HTMLInputElement>(null);
   const isAdmin = isAdminLoggedIn();
 
@@ -541,12 +572,51 @@ export default function StrategyPage({
     setPosts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
   };
 
-  const postsForCategory = (cat: string) => posts.filter((p) => p.category === cat);
+  // ── Filter / sort pipeline ────────────────────────────────────────────────────
+  const applyFiltersAndSort = (input: StrategyPost[]): StrategyPost[] => {
+    let arr = input;
 
-  // Homepage: pinned posts only
+    if (sourceFilter !== "all") {
+      arr = arr.filter((p) => (p.source || "discord") === sourceFilter);
+    }
+    if (mediaOnly) {
+      arr = arr.filter((p) => (p.media?.length ?? 0) > 0);
+    }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      arr = arr.filter(
+        (p) =>
+          p.content.toLowerCase().includes(q) ||
+          p.author_name.toLowerCase().includes(q)
+      );
+    }
+
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...arr].sort((a, b) => {
+      if (sortKey === "date") {
+        return dir * (new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      }
+      if (sortKey === "author") {
+        return dir * a.author_name.localeCompare(b.author_name);
+      }
+      // manual — server-supplied position; tiebreak on created_at
+      const dp = a.position - b.position;
+      if (dp !== 0) return dir * dp;
+      return dir * (new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    });
+  };
+
+  const postsForCategory = (cat: string) =>
+    applyFiltersAndSort(posts.filter((p) => p.category === cat));
+
+  // Homepage: filtered + sorted pinned posts for the active home tab
   const isHome = selectedCategory === null;
-  const pinnedPosts = isHome ? posts.filter((p) => p.pinned) : [];
-  const showPinBanner = isHome && pinnedPosts.length === 0 && posts.length > 0;
+  const rawPinnedPosts = isHome ? posts.filter((p) => p.pinned && p.category === homeTab) : [];
+  const pinnedPosts = applyFiltersAndSort(rawPinnedPosts);
+  const tabHasPosts = isHome && posts.some((p) => p.category === homeTab);
+  const showPinBanner = isHome && rawPinnedPosts.length === 0 && tabHasPosts;
+  const filtersActive = search.trim() !== "" || sourceFilter !== "all" || mediaOnly;
+  const noFilterResults = filtersActive && pinnedPosts.length === 0 && rawPinnedPosts.length > 0;
 
   if (!guildId) {
     return (
@@ -657,12 +727,99 @@ export default function StrategyPage({
           </form>
         )}
 
+        {/* Filter / sort toolbar */}
+        {!loading && (
+          <div className="flex flex-wrap items-center gap-2 bg-yt-surface border border-yt-border rounded-xl px-3 py-2">
+            {/* Text search */}
+            <div className="flex items-center gap-1.5 flex-1 min-w-[160px]">
+              <Search size={13} className="text-yt-muted flex-shrink-0" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search posts…"
+                className="flex-1 bg-transparent text-sm text-yt-text placeholder:text-yt-muted outline-none"
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="text-yt-muted hover:text-yt-text flex-shrink-0">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            {/* Source filter pills */}
+            <div className="flex items-center gap-1 text-xs">
+              {(["all", "web", "discord"] as SourceFilter[]).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSourceFilter(s)}
+                  className={`px-2.5 py-1 rounded-full font-semibold uppercase tracking-wider transition-colors ${
+                    sourceFilter === s
+                      ? "bg-yt-text text-yt-bg"
+                      : "bg-yt-elevated text-yt-muted hover:text-yt-text"
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+
+            {/* Media only toggle */}
+            <label className="flex items-center gap-1.5 text-xs text-yt-muted cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={mediaOnly}
+                onChange={(e) => setMediaOnly(e.target.checked)}
+                className="accent-current"
+              />
+              Media only
+            </label>
+
+            {/* Sort key */}
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              className="bg-yt-elevated text-yt-text text-xs rounded-lg px-2 py-1 outline-none border border-yt-border cursor-pointer"
+            >
+              <option value="manual">Manual</option>
+              <option value="date">Date</option>
+              <option value="author">Author</option>
+            </select>
+
+            {/* Sort direction */}
+            <button
+              onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+              className="flex items-center gap-1 bg-yt-elevated hover:bg-yt-border text-yt-text text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors"
+              title={sortDir === "asc" ? "Ascending" : "Descending"}
+            >
+              {sortDir === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+              {sortDir === "asc" ? "Asc" : "Desc"}
+            </button>
+          </div>
+        )}
+
         {/* Feed */}
         {loading ? (
           <p className="text-xs text-yt-muted">Loading…</p>
         ) : isHome ? (
-          /* Home view — pinned posts only */
+          /* Home view — tab switcher + pinned posts per category */
           <>
+            {/* Tab switcher */}
+            <div className="flex gap-2">
+              {CATEGORIES.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setHomeTab(c.id as "strategy" | "guildwar")}
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-4 py-1.5 rounded-full transition-all ${
+                    homeTab === c.id
+                      ? "bg-yt-text text-yt-bg shadow"
+                      : "bg-yt-elevated text-yt-muted hover:bg-yt-border hover:text-yt-text"
+                  }`}
+                >
+                  {c.emoji} {c.label}
+                </button>
+              ))}
+            </div>
+
             {showPinBanner && (
               <div className="flex items-center gap-2 text-sm text-yt-muted bg-yt-surface border border-yt-border rounded-lg px-4 py-3">
                 <span>📌</span>
@@ -675,10 +832,19 @@ export default function StrategyPage({
                 <p className="text-xs opacity-40">Post in a Discord strategy channel to see it here</p>
               </div>
             )}
+            {!tabHasPosts && posts.length > 0 && rawPinnedPosts.length === 0 && !filtersActive && (
+              <div className="flex flex-col items-center justify-center gap-2 text-yt-muted py-12 select-none">
+                <p className="text-sm opacity-50">No posts in this section yet</p>
+              </div>
+            )}
+            {noFilterResults && (
+              <p className="text-xs text-yt-muted italic py-4">No posts match the current filters.</p>
+            )}
             {pinnedPosts.length > 0 && (
               <CategoryFeed
                 posts={pinnedPosts}
                 isAdmin={isAdmin}
+                manualSort={sortKey === "manual"}
                 onMoveUp={(p) => handleMove(p, -1)}
                 onMoveDown={(p) => handleMove(p, 1)}
                 onDelete={(id) => handleDelete(id)}
@@ -688,23 +854,34 @@ export default function StrategyPage({
           </>
         ) : (
           /* Category view */
-          <CategoryFeed
-            posts={postsForCategory(selectedCategory!)}
-            isAdmin={isAdmin}
-            onMoveUp={(p) => handleMove(p, -1)}
-            onMoveDown={(p) => handleMove(p, 1)}
-            onDelete={(id) => handleDelete(id)}
-            onUpdate={handleUpdate}
-          />
+          (() => {
+            const catPosts = postsForCategory(selectedCategory!);
+            const rawCatPosts = posts.filter((p) => p.category === selectedCategory);
+            const catNoResults = filtersActive && catPosts.length === 0 && rawCatPosts.length > 0;
+            return catNoResults ? (
+              <p className="text-xs text-yt-muted italic py-4">No posts match the current filters.</p>
+            ) : (
+              <CategoryFeed
+                posts={catPosts}
+                isAdmin={isAdmin}
+                manualSort={sortKey === "manual"}
+                onMoveUp={(p) => handleMove(p, -1)}
+                onMoveDown={(p) => handleMove(p, 1)}
+                onDelete={(id) => handleDelete(id)}
+                onUpdate={handleUpdate}
+              />
+            );
+          })()
         )}
       </div>
     </div>
   );
 }
 
-function CategoryFeed({ posts, isAdmin, onMoveUp, onMoveDown, onDelete, onUpdate }: {
+function CategoryFeed({ posts, isAdmin, manualSort = true, onMoveUp, onMoveDown, onDelete, onUpdate }: {
   posts: StrategyPost[];
   isAdmin: boolean;
+  manualSort?: boolean;
   onMoveUp: (p: StrategyPost) => void;
   onMoveDown: (p: StrategyPost) => void;
   onDelete: (id: number) => void;
@@ -726,6 +903,7 @@ function CategoryFeed({ posts, isAdmin, onMoveUp, onMoveDown, onDelete, onUpdate
           isAdmin={isAdmin}
           isFirst={i === 0}
           isLast={i === posts.length - 1}
+          manualSort={manualSort}
           onMoveUp={() => onMoveUp(post)}
           onMoveDown={() => onMoveDown(post)}
           onDelete={() => onDelete(post.id)}
