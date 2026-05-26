@@ -411,12 +411,8 @@ export default function StrategyPage({
   // ── Filter / sort state (persisted in localStorage) ──────────────────────────
   type SortKey = "manual" | "date" | "author";
   type SortDir = "asc" | "desc";
-  type SourceFilter = "all" | "web" | "discord";
 
   const [search, setSearch] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(
-    () => (localStorage.getItem("strategySourceFilter") as SourceFilter) || "all"
-  );
   const [sortKey, setSortKey] = useState<SortKey>(
     () => (localStorage.getItem("strategySortKey") as SortKey) || "manual"
   );
@@ -427,7 +423,8 @@ export default function StrategyPage({
     () => localStorage.getItem("strategyMediaOnly") === "1"
   );
 
-  useEffect(() => { localStorage.setItem("strategySourceFilter", sourceFilter); }, [sourceFilter]);
+  // Clean up stale source-filter key left by Round 13 (harmless if already gone)
+  useEffect(() => { localStorage.removeItem("strategySourceFilter"); }, []);
   useEffect(() => { localStorage.setItem("strategySortKey", sortKey); }, [sortKey]);
   useEffect(() => { localStorage.setItem("strategySortDir", sortDir); }, [sortDir]);
   useEffect(() => { localStorage.setItem("strategyMediaOnly", mediaOnly ? "1" : "0"); }, [mediaOnly]);
@@ -576,9 +573,6 @@ export default function StrategyPage({
   const applyFiltersAndSort = (input: StrategyPost[]): StrategyPost[] => {
     let arr = input;
 
-    if (sourceFilter !== "all") {
-      arr = arr.filter((p) => (p.source || "discord") === sourceFilter);
-    }
     if (mediaOnly) {
       arr = arr.filter((p) => (p.media?.length ?? 0) > 0);
     }
@@ -615,7 +609,7 @@ export default function StrategyPage({
   const pinnedPosts = applyFiltersAndSort(rawPinnedPosts);
   const tabHasPosts = isHome && posts.some((p) => p.category === homeTab);
   const showPinBanner = isHome && rawPinnedPosts.length === 0 && tabHasPosts;
-  const filtersActive = search.trim() !== "" || sourceFilter !== "all" || mediaOnly;
+  const filtersActive = search.trim() !== "" || mediaOnly;
   const noFilterResults = filtersActive && pinnedPosts.length === 0 && rawPinnedPosts.length > 0;
 
   if (!guildId) {
@@ -744,23 +738,6 @@ export default function StrategyPage({
                   <X size={12} />
                 </button>
               )}
-            </div>
-
-            {/* Source filter pills */}
-            <div className="flex items-center gap-1 text-xs">
-              {(["all", "web", "discord"] as SourceFilter[]).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSourceFilter(s)}
-                  className={`px-2.5 py-1 rounded-full font-semibold uppercase tracking-wider transition-colors ${
-                    sourceFilter === s
-                      ? "bg-yt-text text-yt-bg"
-                      : "bg-yt-elevated text-yt-muted hover:text-yt-text"
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
             </div>
 
             {/* Media only toggle */}
