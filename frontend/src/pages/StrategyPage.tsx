@@ -560,7 +560,7 @@ export default function StrategyPage({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 snap-y snap-mandatory scroll-pt-6">
+    <div className={`flex-1 overflow-y-auto p-6 ${showForm ? "" : "snap-y snap-mandatory scroll-pt-6"}`}>
       <div className="flex flex-col gap-6">
 
         {/* Header */}
