@@ -232,6 +232,16 @@ async def _post_to_discord(post_id: int, content: str, media_items: list, catego
 
         msg = await channel.send(**kwargs)
 
+        # Reply with web deep-link so members can navigate to the exact post
+        web_url = f"{settings.FRONTEND_URL}?mode=strategy&msg={msg.id}"
+        try:
+            await msg.reply(
+                f"🔗 **View on BeggarClub** → {web_url}",
+                mention_author=False,
+            )
+        except Exception as e:
+            print(f"[Strategy] Could not send web-link reply: {e}")
+
         # Update post with real Discord message ID + URL
         async with AsyncSessionLocal() as db:
             post = await db.get(StrategyPost, post_id)
