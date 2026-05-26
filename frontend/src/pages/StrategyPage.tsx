@@ -172,14 +172,14 @@ function PostCard({
         </div>
       )}
       {images.length > 1 && (
-        <div className="px-5 pb-2">
-          <div className="grid gap-0.5 grid-cols-2 max-w-sm">
+        <div className="pb-2">
+          <div className="grid gap-0.5 grid-cols-2">
             {images.slice(0, 4).map((m, i) => (
               <img
                 key={i}
                 src={m.public_url}
                 alt=""
-                className="aspect-square object-cover w-full cursor-pointer rounded-sm"
+                className="w-full h-auto object-contain cursor-pointer"
                 onClick={() => setLightboxItem({ url: m.public_url, type: "image" })}
               />
             ))}
