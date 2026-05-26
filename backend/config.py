@@ -18,6 +18,25 @@ class Settings(BaseSettings):
     R2_PUBLIC_URL: str = ""
     GALLERY_CHANNEL_IDS: str = ""
     OWNER_ID: int = 0
+    NOTIFICATION_CHANNEL_ID: str = ""
+    ADMIN_SECRET: str = ""
+    STRATEGY_CHANNEL_ID: str = ""
+    GUILDWAR_CHANNEL_ID: str = ""
+
+    @property
+    def notification_channel_id(self) -> int | None:
+        v = self.NOTIFICATION_CHANNEL_ID.strip()
+        return int(v) if v.isdigit() else None
+
+    @property
+    def strategy_channel_id(self) -> int | None:
+        v = self.STRATEGY_CHANNEL_ID.strip()
+        return int(v) if v.isdigit() else None
+
+    @property
+    def guildwar_channel_id(self) -> int | None:
+        v = self.GUILDWAR_CHANNEL_ID.strip()
+        return int(v) if v.isdigit() else None
 
     @property
     def gallery_channel_ids(self) -> list[int]:

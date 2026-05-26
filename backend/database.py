@@ -11,10 +11,13 @@ AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=F
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migrate: safely add new columns to existing tables
+        # Migrate: safely add new columns to existing tables (idempotent)
         for sql in [
             "ALTER TABLE playlists ADD COLUMN icon VARCHAR DEFAULT '🎵'",
             "ALTER TABLE playlists ADD COLUMN color VARCHAR DEFAULT 'red'",
+            "ALTER TABLE gallery_items ADD COLUMN channel_id TEXT DEFAULT ''",
+            "ALTER TABLE gallery_items ADD COLUMN starred INTEGER DEFAULT 0",
+            "ALTER TABLE strategy_posts ADD COLUMN pinned INTEGER DEFAULT 0",
         ]:
             try:
                 await conn.execute(text(sql))

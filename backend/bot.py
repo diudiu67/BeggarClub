@@ -1,15 +1,23 @@
 import asyncio
 import glob
+import json
 import logging
 import random
 import time
 import uuid
+from datetime import date, datetime, timedelta, timezone
 import discord
 import discord.opus
 from discord.ext import commands
 from player import player_manager, Track
 from youtube import get_stream_url, get_recommendations
 from config import settings
+
+# ── Bot start timestamp (used by /api/admin/status) ─────────────────────────
+_bot_started_at: float = 0.0
+
+def get_bot_started_at() -> float:
+    return _bot_started_at
 
 # ── Voice event log (survives hidden-window runs) ────────────────────────────
 _vlog = logging.getLogger("voice")
@@ -109,45 +117,601 @@ async def _save_gallery_item(item_data: dict):
 
 @bot.event
 async def on_message(message: discord.Message):
-    channel_ids = settings.gallery_channel_ids
-    if not channel_ids or message.author.bot:
-        return
-    if message.channel.id not in channel_ids:
+    if message.author.bot:
         return
 
-    for attachment in message.attachments:
-        ct = attachment.content_type or ""
-        if not (ct.startswith("image/") or ct.startswith("video/")):
-            continue
-        try:
-            data = await attachment.read()
-            ext = attachment.filename.rsplit(".", 1)[-1] if "." in attachment.filename else "bin"
-            key = f"{uuid.uuid4().hex}.{ext}"
+    # ── Gallery channel handling ──────────────────────────────────────────────
+    gallery_channel_ids = settings.gallery_channel_ids
+    if gallery_channel_ids and message.channel.id in gallery_channel_ids:
+        for attachment in message.attachments:
+            ct = attachment.content_type or ""
+            if not (ct.startswith("image/") or ct.startswith("video/")):
+                continue
+            try:
+                data = await attachment.read()
+                ext = attachment.filename.rsplit(".", 1)[-1] if "." in attachment.filename else "bin"
+                key = f"{uuid.uuid4().hex}.{ext}"
 
-            from r2 import upload_to_r2
-            public_url = await upload_to_r2(key, data, ct)
+                from r2 import upload_to_r2
+                public_url = await upload_to_r2(key, data, ct)
 
-            item_data = {
-                "r2_key": key,
-                "public_url": public_url,
-                "original_name": attachment.filename,
-                "media_type": "image" if ct.startswith("image/") else "video",
-                "uploader": message.author.display_name,
-                "caption": message.content or "",
-                "source": "discord",
-                "channel_name": getattr(message.channel, "name", ""),
-                "guild_id": str(message.guild.id) if message.guild else "",
+                item_data = {
+                    "r2_key": key,
+                    "public_url": public_url,
+                    "original_name": attachment.filename,
+                    "media_type": "image" if ct.startswith("image/") else "video",
+                    "uploader": message.author.display_name,
+                    "caption": message.content or "",
+                    "source": "discord",
+                    "channel_name": getattr(message.channel, "name", ""),
+                    "channel_id": str(message.channel.id),
+                    "guild_id": str(message.guild.id) if message.guild else "",
+                }
+                import bot_runner
+                bot_runner.fire_in_fastapi(_save_gallery_item(item_data))
+                print(f"[Gallery] Saved {attachment.filename} from {message.author.display_name}")
+            except Exception as e:
+                print(f"[Gallery] Failed to process attachment: {e}")
+                asyncio.create_task(send_owner_dm(
+                    f"⚠️ **[R2 UPLOAD FAILED]**\n"
+                    f"Gallery upload failed for `{attachment.filename}`.\n"
+                    f"Error: {str(e)[:200]}"
+                ))
+
+    # ── Strategy channel handling ─────────────────────────────────────────────
+    category = _strategy_category_for_channel(message.channel.id)
+    if category:
+        import bot_runner
+        bot_runner.fire_in_fastapi(_save_strategy_post(message, category))
+        web_url = f"{settings.FRONTEND_URL}?mode=strategy&msg={message.id}"
+        await message.reply(
+            f"🔗 **View on BeggarClub** → {web_url}",
+            mention_author=False,
+        )
+
+
+# ─── Stream notification helpers ─────────────────────────────────────────────
+
+async def _stream_notifs_enabled() -> bool:
+    """Check the DB setting; default True if row is missing."""
+    try:
+        from database import AsyncSessionLocal
+        from models import Setting
+        async with AsyncSessionLocal() as db:
+            row = await db.get(Setting, "stream_notifications_enabled")
+            return row.value == "true" if row else True
+    except Exception:
+        return True
+
+
+async def _handle_stream_start_raw(
+    user,
+    notif_channel,
+    *,
+    guild=None,
+    is_test: bool = False,
+):
+    """
+    Post a Discord embed and broadcast a WS notification event.
+    `user` can be a discord.Member or a discord.ClientUser (for test).
+    `notif_channel` is the TextChannel to post to.
+    """
+    try:
+        label = "🔴 TEST — Stream notification" if is_test else "🔴 Live stream started"
+        embed = discord.Embed(
+            title=label,
+            color=0xFF0000,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_author(
+            name=user.display_name if hasattr(user, "display_name") else str(user),
+            icon_url=user.display_avatar.url if hasattr(user, "display_avatar") else None,
+        )
+        if not is_test and hasattr(user, "voice") and user.voice and user.voice.channel:
+            embed.add_field(name="Channel", value=user.voice.channel.mention, inline=False)
+        embed.set_thumbnail(url=user.display_avatar.url if hasattr(user, "display_avatar") else None)
+
+        content = user.mention if not is_test else None
+        await notif_channel.send(content=content, embed=embed)
+
+        # WS broadcast — find the guild and broadcast to all its WS clients
+        target_guild = guild or (getattr(user, "guild", None))
+        if target_guild:
+            gp = player_manager.get(str(target_guild.id))
+            payload = {
+                "type": "stream_start",
+                "is_test": is_test,
+                "user_id": str(user.id),
+                "user_name": user.display_name if hasattr(user, "display_name") else str(user),
+                "user_avatar": str(user.display_avatar.url) if hasattr(user, "display_avatar") else "",
+                "channel_name": (
+                    user.voice.channel.name
+                    if not is_test and hasattr(user, "voice") and user.voice and user.voice.channel
+                    else "test"
+                ),
+                "started_at": datetime.now(timezone.utc).isoformat(),
             }
-            import bot_runner
-            bot_runner.fire_in_fastapi(_save_gallery_item(item_data))
-            print(f"[Gallery] Saved {attachment.filename} from {message.author.display_name}")
+            gp.broadcast("notification", payload)
+
+    except Exception as e:
+        print(f"[StreamNotif] Failed: {e}")
+
+
+async def _handle_stream_start(member: discord.Member, channel):
+    """Called when a real member starts Go Live."""
+    notif_channel_id = settings.notification_channel_id
+    if not notif_channel_id:
+        return
+    notif_channel = bot.get_channel(notif_channel_id)
+    if not notif_channel:
+        return
+    await _handle_stream_start_raw(member, notif_channel, guild=member.guild)
+
+
+# ─── Strategy helpers ────────────────────────────────────────────────────────
+
+def _strategy_category_for_channel(channel_id: int) -> str | None:
+    """Return "strategy" or "guildwar" if channel_id is a strategy channel, else None."""
+    if settings.strategy_channel_id and channel_id == settings.strategy_channel_id:
+        return "strategy"
+    if settings.guildwar_channel_id and channel_id == settings.guildwar_channel_id:
+        return "guildwar"
+    return None
+
+
+async def _save_strategy_post(message: discord.Message, category: str):
+    """Run on FastAPI event loop — save a Discord message as a StrategyPost."""
+    from database import AsyncSessionLocal
+    from models import StrategyPost
+    from sqlalchemy import select, func
+
+    # Skip if message has no text and no media
+    has_media = any(
+        a.content_type and (a.content_type.startswith("image/") or a.content_type.startswith("video/"))
+        for a in message.attachments
+    )
+    if not message.content.strip() and not has_media:
+        return
+
+    async with AsyncSessionLocal() as db:
+        # Deduplicate by message_id
+        existing = await db.execute(
+            select(StrategyPost).where(StrategyPost.message_id == str(message.id))
+        )
+        if existing.scalar_one_or_none():
+            return
+
+        # Compute position
+        max_pos_result = await db.scalar(
+            select(func.max(StrategyPost.position)).where(
+                StrategyPost.guild_id == str(message.guild.id) if message.guild else StrategyPost.guild_id == ""
+            )
+        )
+        position = (max_pos_result or 0) + 1
+
+        # Upload attachments to R2
+        media_items = []
+        for attachment in message.attachments:
+            ct = attachment.content_type or ""
+            if not (ct.startswith("image/") or ct.startswith("video/")):
+                continue
+            try:
+                data = await attachment.read()
+                ext = attachment.filename.rsplit(".", 1)[-1] if "." in attachment.filename else "bin"
+                key = f"strategy/{uuid.uuid4().hex}.{ext}"
+                from r2 import upload_to_r2
+                public_url = await upload_to_r2(key, data, ct)
+                media_items.append({
+                    "public_url": public_url,
+                    "r2_key": key,
+                    "media_type": "image" if ct.startswith("image/") else "video",
+                })
+            except Exception as e:
+                print(f"[Strategy] Failed to upload attachment: {e}")
+
+        post = StrategyPost(
+            guild_id=str(message.guild.id) if message.guild else "",
+            message_id=str(message.id),
+            category=category,
+            author_name=message.author.display_name,
+            author_avatar=str(message.author.display_avatar.url) if hasattr(message.author, "display_avatar") else "",
+            content=message.content or "",
+            media=json.dumps(media_items),
+            position=position,
+            message_url=message.jump_url,
+            created_at=message.created_at.replace(tzinfo=timezone.utc) if message.created_at else datetime.now(timezone.utc),
+        )
+        db.add(post)
+        await db.commit()
+        print(f"[Strategy] Saved post from {message.author.display_name} in category={category}")
+
+
+# ─── Poll helpers ─────────────────────────────────────────────────────────────
+
+# Regional-indicator emojis for reaction polls (A–J for up to 10 options)
+_POLL_EMOJIS = ["🇦", "🇧", "🇨", "🇩", "🇪", "🇫", "🇬", "🇭", "🇮", "🇯"]
+
+# Debounce tracker: poll_id → pending asyncio.Task
+_pending_embed_updates: dict[int, asyncio.Task] = {}
+
+
+async def _send_native_poll(channel: discord.TextChannel, poll_row) -> int:
+    """Send a Discord native poll. Returns the Discord message ID."""
+    options = json.loads(poll_row.options)
+    poll = discord.Poll(
+        question=poll_row.question,
+        duration=timedelta(seconds=poll_row.duration_seconds),
+        multiple=poll_row.multi_select,
+    )
+    for opt in options:
+        poll.add_answer(text=opt)
+    msg = await channel.send(poll=poll)
+    return msg.id
+
+
+async def _send_reaction_poll(channel: discord.TextChannel, poll_row) -> int:
+    """Send a custom reaction embed poll. Returns the Discord message ID."""
+    options = json.loads(poll_row.options)
+    lines = [f"{_POLL_EMOJIS[i]} **{opt}** — 0 votes" for i, opt in enumerate(options)]
+    embed = discord.Embed(
+        title=f"📊 {poll_row.question}",
+        description="\n".join(lines),
+        color=0x5865F2,
+    )
+    footer = "Anonymous poll · React to vote" if poll_row.anonymous else "React to vote · Single choice only"
+    embed.set_footer(text=footer)
+    msg = await channel.send(embed=embed)
+    for i in range(len(options)):
+        await msg.add_reaction(_POLL_EMOJIS[i])
+    return msg.id
+
+
+async def _rebuild_reaction_embed(poll_id: int, options: list[str], anonymous: bool):
+    """Rebuild and edit the reaction poll embed with updated tallies."""
+    from database import AsyncSessionLocal
+    from models import Poll, PollVote
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as db:
+        poll = await db.get(Poll, poll_id)
+        if not poll or poll.ended_at or not poll.message_id or not poll.channel_id:
+            return
+        # Get tallies
+        votes_result = await db.execute(select(PollVote).where(PollVote.poll_id == poll_id))
+        votes = votes_result.scalars().all()
+
+    tallies: dict[int, int] = {i: 0 for i in range(len(options))}
+    for vote in votes:
+        tallies[vote.option_index] = tallies.get(vote.option_index, 0) + 1
+
+    lines = [f"{_POLL_EMOJIS[i]} **{opt}** — {tallies[i]} vote{'s' if tallies[i] != 1 else ''}" for i, opt in enumerate(options)]
+    embed = discord.Embed(
+        title=f"📊 {poll.question}",
+        description="\n".join(lines),
+        color=0x5865F2,
+    )
+    footer = "Anonymous poll · React to vote" if anonymous else "React to vote · Single choice only"
+    embed.set_footer(text=footer)
+
+    try:
+        channel = bot.get_channel(int(poll.channel_id))
+        if channel:
+            msg = await channel.fetch_message(int(poll.message_id))
+            await msg.edit(embed=embed)
+    except Exception as e:
+        print(f"[Polls] Embed update failed for poll {poll_id}: {e}")
+
+
+async def _debounced_embed_update(poll_id: int, options: list[str], anonymous: bool, delay: float = 2.0):
+    await asyncio.sleep(delay)
+    _pending_embed_updates.pop(poll_id, None)
+    await _rebuild_reaction_embed(poll_id, options, anonymous)
+
+
+async def _finalize_poll(poll, db, bot_instance):
+    """Save final results, mark poll ended, post a summary message."""
+    from models import PollVote
+    from sqlalchemy import select
+
+    now = datetime.now(timezone.utc)
+    options = json.loads(poll.options)
+    tallies: dict[str, int] = {}
+
+    if poll.poll_type == "native" and poll.message_id and poll.channel_id:
+        # Try to read native poll results from Discord
+        try:
+            channel = bot_instance.get_channel(int(poll.channel_id))
+            if channel:
+                msg = await channel.fetch_message(int(poll.message_id))
+                if msg.poll and msg.poll.results:
+                    for ac in msg.poll.results.answer_counts:
+                        tallies[str(ac.id - 1)] = ac.count  # Discord answer IDs are 1-indexed
         except Exception as e:
-            print(f"[Gallery] Failed to process attachment: {e}")
-            asyncio.create_task(send_owner_dm(
-                f"⚠️ **[R2 UPLOAD FAILED]**\n"
-                f"Gallery upload failed for `{attachment.filename}`.\n"
-                f"Error: {str(e)[:200]}"
-            ))
+            print(f"[Polls] Could not fetch native poll results: {e}")
+    else:
+        # Reaction poll — read from DB
+        votes_result = await db.execute(select(PollVote).where(PollVote.poll_id == poll.id))
+        for vote in votes_result.scalars().all():
+            tallies[str(vote.option_index)] = tallies.get(str(vote.option_index), 0) + 1
+
+    # Initialize zeros for options with no votes
+    for i in range(len(options)):
+        tallies.setdefault(str(i), 0)
+
+    poll.ended_at = now
+    poll.final_results = json.dumps(tallies)
+    await db.commit()
+
+    # Post summary to Discord
+    if poll.message_id and poll.channel_id:
+        try:
+            channel = bot_instance.get_channel(int(poll.channel_id))
+            if channel:
+                embed = discord.Embed(title="📊 Poll Ended", color=0x57F287)
+                embed.add_field(name="Question", value=poll.question, inline=False)
+                winner_idx = max(tallies, key=lambda k: tallies[k]) if tallies else None
+                for i, opt in enumerate(options):
+                    votes = tallies.get(str(i), 0)
+                    emoji = _POLL_EMOJIS[i] if poll.poll_type == "reaction" else f"{i + 1}."
+                    prefix = "🏆 " if str(i) == winner_idx else ""
+                    embed.add_field(name=f"{emoji} {opt}", value=f"{prefix}{votes} vote{'s' if votes != 1 else ''}", inline=True)
+                await channel.send(embed=embed)
+        except Exception as e:
+            print(f"[Polls] Failed to post poll summary: {e}")
+
+
+# ─── Reaction event handlers for polls ───────────────────────────────────────
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    if payload.user_id == bot.user.id:
+        return  # ignore bot's own pre-reactions
+    await _handle_reaction(payload, add=True)
+
+
+@bot.event
+async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
+    if payload.user_id == bot.user.id:
+        return
+    await _handle_reaction(payload, add=False)
+
+
+async def _handle_reaction(payload: discord.RawReactionActionEvent, add: bool):
+    """Process a reaction add/remove for reaction-type polls."""
+    from database import AsyncSessionLocal
+    from models import Poll, PollVote
+    from sqlalchemy import select
+
+    emoji_str = str(payload.emoji)
+    if emoji_str not in _POLL_EMOJIS:
+        return
+
+    option_index = _POLL_EMOJIS.index(emoji_str)
+
+    async with AsyncSessionLocal() as db:
+        # Find an active reaction poll with this message_id
+        result = await db.execute(
+            select(Poll).where(
+                Poll.message_id == str(payload.message_id),
+                Poll.poll_type == "reaction",
+                Poll.ended_at == None,  # noqa: E711
+            )
+        )
+        poll = result.scalar_one_or_none()
+        if not poll:
+            return
+
+        poll_id = poll.id
+        options = json.loads(poll.options)
+        anonymous = poll.anonymous
+
+        if add:
+            # Remove any existing vote from this user (single-vote enforcement)
+            existing = await db.execute(
+                select(PollVote).where(
+                    PollVote.poll_id == poll_id,
+                    PollVote.user_id == str(payload.user_id),
+                )
+            )
+            existing_vote = existing.scalar_one_or_none()
+            if existing_vote:
+                if existing_vote.option_index == option_index:
+                    return  # Same option — no change needed
+                # Remove old reaction from Discord
+                try:
+                    channel = bot.get_channel(payload.channel_id)
+                    if channel:
+                        msg = await channel.fetch_message(payload.message_id)
+                        old_emoji = _POLL_EMOJIS[existing_vote.option_index]
+                        member = payload.member or channel.guild.get_member(payload.user_id)
+                        if member:
+                            await msg.remove_reaction(old_emoji, member)
+                except Exception:
+                    pass
+                existing_vote.option_index = option_index
+            else:
+                db.add(PollVote(poll_id=poll_id, user_id=str(payload.user_id), option_index=option_index))
+        else:
+            # Remove vote
+            existing = await db.execute(
+                select(PollVote).where(
+                    PollVote.poll_id == poll_id,
+                    PollVote.user_id == str(payload.user_id),
+                    PollVote.option_index == option_index,
+                )
+            )
+            vote = existing.scalar_one_or_none()
+            if vote:
+                await db.delete(vote)
+
+        await db.commit()
+
+    # Debounce embed update (2 s)
+    existing_task = _pending_embed_updates.get(poll_id)
+    if existing_task and not existing_task.done():
+        existing_task.cancel()
+    _pending_embed_updates[poll_id] = asyncio.create_task(
+        _debounced_embed_update(poll_id, options, anonymous, delay=2.0)
+    )
+
+
+# ─── Scheduler: polls, birthdays, reminders ──────────────────────────────────
+
+_scheduler_started = False
+_last_birthday_post: dict[str, str] = {}  # guild_id → "YYYY-MM-DD"
+
+
+async def _scheduler_loop():
+    """Run every 30 s: dispatch scheduled polls, end expired polls, fire birthdays and reminders."""
+    while True:
+        await asyncio.sleep(30)
+        now = datetime.now(timezone.utc)
+        try:
+            await _tick_polls(now)
+        except Exception as e:
+            print(f"[Scheduler] Polls tick error: {e}")
+        try:
+            await _tick_birthdays(now)
+        except Exception as e:
+            print(f"[Scheduler] Birthdays tick error: {e}")
+        try:
+            await _tick_reminders(now)
+        except Exception as e:
+            print(f"[Scheduler] Reminders tick error: {e}")
+
+
+async def _tick_polls(now: datetime):
+    from database import AsyncSessionLocal
+    from models import Poll
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as db:
+        # Dispatch scheduled polls whose time has come
+        result = await db.execute(
+            select(Poll).where(
+                Poll.scheduled_for <= now,
+                Poll.dispatched_at == None,  # noqa: E711
+                Poll.ended_at == None,  # noqa: E711
+            )
+        )
+        for poll in result.scalars().all():
+            try:
+                channel = bot.get_channel(int(poll.channel_id))
+                if channel:
+                    if poll.poll_type == "native":
+                        message_id = await _send_native_poll(channel, poll)
+                    else:
+                        message_id = await _send_reaction_poll(channel, poll)
+                    poll.message_id = str(message_id)
+                    poll.dispatched_at = now
+                    poll.ends_at = now + timedelta(seconds=poll.duration_seconds)
+                    await db.commit()
+                    print(f"[Scheduler] Dispatched scheduled poll {poll.id}")
+            except Exception as e:
+                print(f"[Scheduler] Failed to dispatch poll {poll.id}: {e}")
+
+        # Auto-end expired polls
+        result2 = await db.execute(
+            select(Poll).where(
+                Poll.ends_at <= now,
+                Poll.ended_at == None,  # noqa: E711
+                Poll.dispatched_at != None,  # noqa: E711
+            )
+        )
+        for poll in result2.scalars().all():
+            try:
+                await _finalize_poll(poll, db, bot)
+                print(f"[Scheduler] Auto-ended poll {poll.id}")
+            except Exception as e:
+                print(f"[Scheduler] Failed to finalize poll {poll.id}: {e}")
+
+
+async def _tick_birthdays(now: datetime):
+    from database import AsyncSessionLocal
+    from models import Birthday
+    from routes.admin import _get_setting
+    from sqlalchemy import select
+
+    today = now.date()
+    today_str = today.isoformat()
+
+    async with AsyncSessionLocal() as db:
+        # Find all guilds that have birthdays configured
+        result = await db.execute(select(Birthday))
+        all_birthdays = result.scalars().all()
+
+    # Group by guild
+    guilds: dict[str, list] = {}
+    for b in all_birthdays:
+        guilds.setdefault(b.guild_id, []).append(b)
+
+    for guild_id, birthdays in guilds.items():
+        # Check if already posted today
+        if _last_birthday_post.get(guild_id) == today_str:
+            continue
+
+        post_hour = int(await _get_setting(f"birthday_post_hour_{guild_id}", "9"))
+        if now.hour != post_hour:
+            continue
+
+        channel_id_str = await _get_setting(f"birthday_channel_{guild_id}", "")
+        if not channel_id_str:
+            continue
+        channel = bot.get_channel(int(channel_id_str))
+        if not channel:
+            continue
+
+        message_template = await _get_setting(
+            f"birthday_message_{guild_id}",
+            "🎂 Happy birthday, {mention}!"
+        )
+
+        # Find today's birthdays
+        for b in birthdays:
+            if b.birth_month == today.month and b.birth_day == today.day:
+                try:
+                    guild = bot.get_guild(int(guild_id))
+                    member = guild.get_member(int(b.user_id)) if guild else None
+                    mention = member.mention if member else b.display_name
+                    msg_text = message_template.replace("{mention}", mention)
+                    await channel.send(msg_text)
+                    print(f"[Birthday] Posted wish for {b.display_name} in guild {guild_id}")
+                except Exception as e:
+                    print(f"[Birthday] Failed to post for {b.user_id}: {e}")
+
+        _last_birthday_post[guild_id] = today_str
+
+
+async def _tick_reminders(now: datetime):
+    from database import AsyncSessionLocal
+    from models import Reminder
+    from routes.reminders import _advance_next_run
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Reminder).where(
+                Reminder.active == True,  # noqa: E712
+                Reminder.next_run_at <= now,
+            )
+        )
+        reminders = result.scalars().all()
+
+        for reminder in reminders:
+            try:
+                channel = bot.get_channel(int(reminder.channel_id))
+                if channel:
+                    await channel.send(reminder.text)
+                    print(f"[Reminders] Fired reminder {reminder.id} to #{channel.name}")
+                reminder.last_run_at = now
+                if reminder.recurrence:
+                    reminder.next_run_at = _advance_next_run(reminder.recurrence, now)
+                else:
+                    # One-off: disable after firing
+                    reminder.active = False
+                await db.commit()
+            except Exception as e:
+                print(f"[Reminders] Failed to fire reminder {reminder.id}: {e}")
 
 
 @bot.command(name="web", aliases=["player", "ui", "link"])
@@ -165,9 +729,20 @@ async def web_command(ctx: commands.Context):
 
 @bot.event
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-    """Detect unexpected bot disconnects and automatically rejoin."""
+    """Detect Go Live streams from members, and handle bot disconnects."""
+    # ── Stream-start detection (non-bot members only) ──────────────────────
     if member.id != bot.user.id:
-        return  # Only care about the bot itself
+        stream_started = not before.self_stream and after.self_stream
+        if stream_started:
+            try:
+                enabled = await _stream_notifs_enabled()
+                if enabled:
+                    await _handle_stream_start(member, after.channel)
+            except Exception as e:
+                print(f"[StreamNotif] Error in on_voice_state_update: {e}")
+        return  # Only care about the bot itself below
+
+    # ── Bot self-disconnect / reconnect handling (unchanged) ───────────────
 
     before_name = before.channel.name if before.channel else "None"
     after_name  = after.channel.name  if after.channel  else "None"
@@ -204,8 +779,50 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
     ))
 
 
+async def _backfill_gallery_channel_ids():
+    """One-time backfill: resolve channel_name → channel_id for pre-v2 gallery items.
+    Runs in the FastAPI loop (scheduled from on_ready via fire_in_fastapi).
+    """
+    from database import AsyncSessionLocal
+    from models import GalleryItem
+    from sqlalchemy import select as sa_select
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            sa_select(GalleryItem).where(
+                GalleryItem.channel_id == "",
+                GalleryItem.channel_name != "",
+            )
+        )
+        items = result.scalars().all()
+        if not items:
+            print("[Gallery] Backfill: nothing to update")
+            return
+        # Build (guild_id, channel_name) → channel_id lookup from bot's guilds
+        ch_map: dict[tuple[str, str], str] = {}
+        for guild in bot.guilds:
+            for ch in guild.channels:
+                ch_map[(str(guild.id), ch.name)] = str(ch.id)
+        count = 0
+        for item in items:
+            cid = ch_map.get((item.guild_id, item.channel_name))
+            if cid:
+                item.channel_id = cid
+                count += 1
+        if count:
+            await db.commit()
+            print(f"[Gallery] Backfilled channel_id for {count} items")
+        else:
+            print(f"[Gallery] Backfill: {len(items)} items with channel_name but no match found")
+
+
 @bot.event
 async def on_ready():
+    global _bot_started_at, _scheduler_started
+    _bot_started_at = time.time()
+    if not _scheduler_started:
+        _scheduler_started = True
+        asyncio.create_task(_scheduler_loop())
+        print("[Bot] Scheduler started")
     _vlog.info(f"on_ready  user={bot.user}  guilds={[g.name for g in bot.guilds]}")
     print(f"[Bot] Logged in as {bot.user} ({bot.user.id})")
     url = settings.FRONTEND_URL
@@ -216,6 +833,10 @@ async def on_ready():
             name=url,
         ),
     )
+
+    # Backfill channel_id for old gallery items that only have channel_name
+    import bot_runner as _br
+    _br.fire_in_fastapi(_backfill_gallery_channel_ids())
 
     # Save any active voice sessions before clearing — on_ready can fire on
     # reconnect (fresh IDENTIFY), not just on first startup.

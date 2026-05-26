@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse
 from database import init_db
 from player import player_manager
 from config import settings
-from routes import search, playlists, player, guilds, gallery
+from routes import search, playlists, player, guilds, gallery, admin, polls, birthdays, reminders, strategy
 import bot_runner
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
@@ -78,6 +78,11 @@ app.include_router(playlists.router, prefix="/api")
 app.include_router(player.router, prefix="/api")
 app.include_router(guilds.router, prefix="/api")
 app.include_router(gallery.router, prefix="/api")
+app.include_router(admin.router)
+app.include_router(polls.router)
+app.include_router(birthdays.router)
+app.include_router(reminders.router)
+app.include_router(strategy.router)
 
 
 def _check_secret(secret: str):

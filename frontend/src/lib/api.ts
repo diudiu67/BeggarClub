@@ -115,8 +115,19 @@ export const playTracks = (guild_id: string, tracks: Track[]) =>
   });
 
 // Gallery
-export const getGalleryItems = (guild_id = "") =>
-  api.get<{ items: import("../types").GalleryItem[] }>("/gallery/items", { params: { guild_id } })
+export const getGalleryItems = (
+  guild_id = "",
+  channel_id?: string,
+  starred_only?: boolean
+) =>
+  api
+    .get<{ items: import("../types").GalleryItem[] }>("/gallery/items", {
+      params: {
+        guild_id,
+        ...(channel_id ? { channel_id } : {}),
+        ...(starred_only ? { starred_only: "true" } : {}),
+      },
+    })
     .then((r) => r.data.items);
 
 export const uploadGalleryItem = (formData: FormData) =>
@@ -126,3 +137,11 @@ export const uploadGalleryItem = (formData: FormData) =>
 
 export const deleteGalleryItem = (id: number) =>
   api.delete(`/gallery/items/${id}`);
+
+export const starGalleryItem = (id: number) =>
+  api.patch<import("../types").GalleryItem>(`/gallery/items/${id}/star`).then((r) => r.data);
+
+export const getGalleryChannels = (guild_id = "") =>
+  api
+    .get<import("../types").GalleryChannel[]>("/gallery/channels", { params: { guild_id } })
+    .then((r) => (Array.isArray(r.data) ? r.data : []));

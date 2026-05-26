@@ -29,29 +29,32 @@ const MOODS = [
 
 // ─── Genres ───────────────────────────────────────────────────────────────────
 const GENRES = [
+  // Chinese / Cantonese
   { label: "Mandopop",      query: "华语流行 official mv single 国语 MV" },
   { label: "Cantopop",      query: "cantonese pop 粤语 official mv single 2024" },
   { label: "C-Drama OST",   query: "chinese drama ost 华剧 主题曲 official mv" },
-  { label: "Chinese Indie",  query: "chinese indie folk 华语独立 official mv" },
+  { label: "Chinese Indie", query: "chinese indie folk 华语独立 official mv" },
+  // Japanese
   { label: "J-Pop",         query: "jpop official mv single 日本 2024 人気" },
   { label: "Anime OST",     query: "anime opening ending official mv 2024 single" },
   { label: "City Pop",      query: "japanese city pop official mv シティポップ" },
-  { label: "J-Rock",        query: "japanese rock band official mv single 2024" },
+  // Korean
   { label: "K-Pop",         query: "kpop idol official mv single 2024 케이팝" },
-  { label: "K-R&B",         query: "korean rnb soul official mv single 한국" },
   { label: "K-Drama OST",   query: "korean drama ost official mv 드라마 주제곡" },
+  // English + cross-language
   { label: "Pop",           query: "pop artist official music video single 2024" },
-  { label: "R&B",           query: "rnb soul official music video single 2024" },
-  { label: "Hip-Hop",       query: "hiphop rap official music video single 2024" },
+  { label: "Nightcore",     query: "nightcore remix anime kpop chinese english 2024" },
+  { label: "Douyin/TikTok", query: "douyin tiktok viral hit 抖音 trending song 2024" },
+  { label: "Indie",         query: "indie folk acoustic official mv japanese korean english 2024" },
 ];
 
 const FEATURED_GENRES = [
   GENRES[0],  // Mandopop
-  GENRES[8],  // K-Pop
-  GENRES[4],  // J-Pop
-  GENRES[1],  // Cantopop
-  GENRES[11], // Pop
-  GENRES[5],  // Anime OST
+  GENRES[7],  // K-Pop   (was 8)
+  GENRES[4],  // J-Pop   (unchanged)
+  GENRES[1],  // Cantopop (unchanged)
+  GENRES[9],  // Pop     (was 11)
+  GENRES[5],  // Anime OST (unchanged)
 ];
 
 // ─── Query pools ──────────────────────────────────────────────────────────────

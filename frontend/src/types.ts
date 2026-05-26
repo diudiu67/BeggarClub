@@ -1,3 +1,5 @@
+export type AppMode = "music" | "gallery" | "admin" | "strategy";
+
 export interface Track {
   video_id: string;
   title: string;
@@ -63,6 +65,35 @@ export interface GalleryItem {
   caption: string;
   source: "discord" | "web";
   channel_name: string;
+  channel_id: string;
+  starred: boolean;
   guild_id: string;
   created_at: string;
+}
+
+export interface GalleryChannel {
+  channel_id: string;
+  channel_name: string;
+  item_count: number;
+}
+
+export interface StrategyPost {
+  id: number;
+  guild_id: string;
+  message_id: string;
+  category: string;
+  category_label: string;
+  author_name: string;
+  author_avatar: string;
+  content: string;
+  media: { public_url: string; r2_key: string; media_type: "image" | "video" }[];
+  position: number;
+  message_url: string;
+  created_at: string;
+  pinned: boolean;
+}
+
+export interface AdminChannel {
+  id: string;
+  name: string;
 }

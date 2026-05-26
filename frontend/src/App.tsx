@@ -1,25 +1,30 @@
 import { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
-import type { Guild, VoiceChannel, Playlist, PlayerState } from "./types";
+import type { Guild, VoiceChannel, Playlist, PlayerState, AppMode, GalleryChannel } from "./types";
 import SplashScreen from "./components/SplashScreen";
 import {
   getGuilds, getVoiceChannels, joinChannel,
   getPlaylists, createPlaylist, deletePlaylist,
   removeFromQueue, playTrack, playTracks,
+  getGalleryChannels,
 } from "./lib/api";
 import { usePlayer } from "./hooks/usePlayer";
+import { useNotifications } from "./hooks/useNotifications";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import SearchBar from "./components/SearchBar";
 import NowPlaying from "./components/NowPlaying";
 import Queue from "./components/Queue";
 import PlayerOverlay from "./components/PlayerOverlay";
+import NotificationToast from "./components/NotificationToast";
 import Home from "./pages/Home";
 import SearchPage from "./pages/SearchPage";
 import PlaylistPage from "./pages/PlaylistPage";
 import GalleryPage from "./pages/GalleryPage";
+import AdminPage from "./pages/AdminPage";
+import StrategyPage from "./pages/StrategyPage";
 
-type Mode = "music" | "gallery";
+type Mode = AppMode;
 
 export default function App() {
   const [guilds, setGuilds] = useState<Guild[]>([]);
@@ -33,7 +38,16 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
 
+  // Gallery state
+  const [galleryChannels, setGalleryChannels] = useState<GalleryChannel[]>([]);
+  const [selectedGalleryChannel, setSelectedGalleryChannel] = useState<string | null>(null);
+
+  // Strategy state
+  const [selectedStrategyCategory, setSelectedStrategyCategory] = useState<string | null>(null);
+  const [initialStrategyMsgId, setInitialStrategyMsgId] = useState<string | null>(null);
+
   const { state, refresh } = usePlayer(selectedGuild?.id ?? null);
+  useNotifications();
 
   // Clear selected channel when bot disconnects
   useEffect(() => {
@@ -51,6 +65,17 @@ export default function App() {
       return match ?? prev;
     });
   }, [state?.voice_channel_id, state?.voice_connected, voiceChannels]);
+
+  // Read URL params on mount — handle deep links like ?mode=strategy&msg=12345
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paramMode = params.get("mode");
+    const paramMsg = params.get("msg");
+    if (paramMode === "strategy") {
+      setMode("strategy");
+      if (paramMsg) setInitialStrategyMsgId(paramMsg);
+    }
+  }, []);
 
   // Load guilds on mount and restore saved guild
   useEffect(() => {
@@ -71,6 +96,13 @@ export default function App() {
     getVoiceChannels(selectedGuild.id).then(setVoiceChannels).catch(console.error);
     loadPlaylists(selectedGuild.id);
   }, [selectedGuild]);
+
+  // Load gallery channels when switching to gallery mode or guild changes
+  useEffect(() => {
+    if (mode === "gallery") {
+      getGalleryChannels(selectedGuild?.id ?? "").then(setGalleryChannels).catch(console.error);
+    }
+  }, [mode, selectedGuild]);
 
   const loadPlaylists = (guildId: string) => {
     getPlaylists(guildId).then(setPlaylists).catch(console.error);
@@ -135,6 +167,10 @@ export default function App() {
   return (
     <div className="h-dvh flex flex-col bg-yt-bg text-yt-text overflow-hidden">
       {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
+
+      {/* In-app toast notifications */}
+      <NotificationToast />
+
       {/* Header */}
       <Header mode={mode} onSetMode={setMode} onToggleSidebar={() => setShowSidebar((v) => !v)} />
 
@@ -154,6 +190,11 @@ export default function App() {
           onJoinChannel={handleJoinChannel}
           mobileOpen={showSidebar}
           onMobileClose={() => setShowSidebar(false)}
+          galleryChannels={galleryChannels}
+          selectedGalleryChannel={selectedGalleryChannel}
+          onSelectGalleryChannel={setSelectedGalleryChannel}
+          selectedStrategyCategory={selectedStrategyCategory}
+          onSelectStrategyCategory={setSelectedStrategyCategory}
         />
 
         {/* Main content */}
@@ -203,8 +244,21 @@ export default function App() {
                 />
               </Routes>
             </>
+          ) : mode === "gallery" ? (
+            <GalleryPage
+              guildId={selectedGuild?.id ?? null}
+              selectedChannel={selectedGalleryChannel}
+            />
+          ) : mode === "admin" ? (
+            <AdminPage guildId={selectedGuild?.id ?? null} />
           ) : (
-            <GalleryPage guildId={selectedGuild?.id ?? null} />
+            <StrategyPage
+              guildId={selectedGuild?.id ?? null}
+              selectedCategory={selectedStrategyCategory}
+              initialMsgId={initialStrategyMsgId}
+              onInitialMsgHandled={() => setInitialStrategyMsgId(null)}
+              onSelectCategory={setSelectedStrategyCategory}
+            />
           )}
         </main>
 

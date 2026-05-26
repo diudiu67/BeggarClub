@@ -1,14 +1,25 @@
-import { Music2, Images, Menu } from "lucide-react";
-
-type Mode = "music" | "gallery";
+import { Music2, Images, ShieldCheck, TrendingUp, Menu } from "lucide-react";
+import type { AppMode } from "../types";
 
 interface Props {
-  mode: Mode;
-  onSetMode: (mode: Mode) => void;
+  mode: AppMode;
+  onSetMode: (mode: AppMode) => void;
   onToggleSidebar: () => void;
 }
 
+const ADMIN_TAB = { id: "admin" as AppMode, label: "Admin", icon: <ShieldCheck size={15} /> };
+
+const MAIN_TABS: { id: AppMode; label: string; icon: React.ReactNode }[] = [
+  { id: "music",    label: "Music",    icon: <Music2 size={15} /> },
+  { id: "gallery",  label: "Gallery",  icon: <Images size={15} /> },
+  { id: "strategy", label: "Strategy", icon: <TrendingUp size={15} /> },
+];
+
 export default function Header({ mode, onSetMode, onToggleSidebar }: Props) {
+  const tabBase = "flex items-center justify-center gap-1.5 text-sm font-semibold transition-colors border-b-2 h-full";
+  const activeClass = "border-yt-text text-yt-text";
+  const inactiveClass = "border-transparent text-yt-muted hover:text-yt-text";
+
   return (
     <header className="h-12 flex-shrink-0 flex bg-yt-bg border-b border-yt-border">
       {/* Hamburger — mobile only */}
@@ -20,29 +31,31 @@ export default function Header({ mode, onSetMode, onToggleSidebar }: Props) {
         <Menu size={20} />
       </button>
 
+      {/* Admin tab — compact, far left */}
       <button
-        onClick={() => onSetMode("music")}
-        className={`flex-1 flex items-center justify-center gap-2 text-sm font-semibold transition-colors border-b-2 ${
-          mode === "music"
-            ? "border-yt-text text-yt-text"
-            : "border-transparent text-yt-muted hover:text-yt-text"
-        }`}
+        onClick={() => onSetMode(ADMIN_TAB.id)}
+        className={`flex-shrink-0 px-4 ${tabBase} ${mode === ADMIN_TAB.id ? activeClass : inactiveClass}`}
       >
-        <Music2 size={16} />
-        Music
+        {ADMIN_TAB.icon}
+        {ADMIN_TAB.label}
       </button>
+
+      {/* Divider between Admin and the main tabs */}
       <div className="w-px bg-yt-border my-2" />
-      <button
-        onClick={() => onSetMode("gallery")}
-        className={`flex-1 flex items-center justify-center gap-2 text-sm font-semibold transition-colors border-b-2 ${
-          mode === "gallery"
-            ? "border-yt-text text-yt-text"
-            : "border-transparent text-yt-muted hover:text-yt-text"
-        }`}
-      >
-        <Images size={16} />
-        Gallery
-      </button>
+
+      {/* Main tabs — equal flex-1 */}
+      {MAIN_TABS.map((tab, i) => (
+        <div key={tab.id} className="flex items-stretch flex-1">
+          {i > 0 && <div className="w-px bg-yt-border my-2" />}
+          <button
+            onClick={() => onSetMode(tab.id)}
+            className={`flex-1 ${tabBase} ${mode === tab.id ? activeClass : inactiveClass}`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        </div>
+      ))}
     </header>
   );
 }

@@ -30,9 +30,34 @@ async def run(coro):
     return await asyncio.wrap_future(future)
 
 
+def get_bot():
+    """Return the discord.py bot instance (or None if not yet started)."""
+    try:
+        import bot as discord_bot
+        return discord_bot.bot
+    except Exception:
+        return None
+
+
+def get_started_at() -> float:
+    """Return the bot_started_at timestamp (0 if not yet ready)."""
+    try:
+        import bot as discord_bot
+        return discord_bot.get_bot_started_at()
+    except Exception:
+        return 0.0
+
+
 def fire_in_fastapi(coro):
     """Schedule a FastAPI coroutine from the bot thread (fire-and-forget)."""
     loop = _fastapi_loop
+    if loop and loop.is_running():
+        asyncio.run_coroutine_threadsafe(coro, loop)
+
+
+def fire_in_bot(coro):
+    """Schedule a bot coroutine from FastAPI (fire-and-forget). Uses bot's event loop."""
+    loop = _bot_loop
     if loop and loop.is_running():
         asyncio.run_coroutine_threadsafe(coro, loop)
 

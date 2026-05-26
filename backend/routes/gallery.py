@@ -3,10 +3,11 @@ import mimetypes
 from datetime import datetime
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from database import get_db
 from models import GalleryItem
 from r2 import upload_to_r2, delete_from_r2
+from config import settings
 
 router = APIRouter(prefix="/gallery", tags=["gallery"])
 
@@ -27,23 +28,70 @@ def _to_dict(item: GalleryItem) -> dict:
         "caption": item.caption,
         "source": item.source,
         "channel_name": item.channel_name,
+        "channel_id": item.channel_id if item.channel_id else "",
+        "starred": bool(item.starred) if item.starred is not None else False,
         "guild_id": item.guild_id,
         "created_at": item.created_at.isoformat() if item.created_at else None,
     }
 
 
+@router.get("/channels")
+async def list_gallery_channels(guild_id: str = "", db: AsyncSession = Depends(get_db)):
+    """Public — returns configured gallery channels with resolved names and item counts."""
+    import bot_runner
+    b = bot_runner.get_bot()
+
+    result = []
+    for cid in settings.gallery_channel_ids:
+        ch = b.get_channel(cid) if b else None
+        channel_name = ch.name if ch else str(cid)
+
+        # Count items for this channel_id
+        count_q = select(func.count(GalleryItem.id)).where(GalleryItem.channel_id == str(cid))
+        if guild_id:
+            count_q = count_q.where(GalleryItem.guild_id == guild_id)
+        count = await db.scalar(count_q) or 0
+
+        result.append({
+            "channel_id": str(cid),
+            "channel_name": channel_name,
+            "item_count": count,
+        })
+    return result
+
+
 @router.get("/items")
 async def get_items(
     guild_id: str = "",
+    channel_id: str = "",
+    starred_only: bool = False,
     limit: int = 100,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    q = select(GalleryItem).order_by(desc(GalleryItem.created_at)).limit(limit).offset(offset)
+    q = select(GalleryItem).order_by(desc(GalleryItem.created_at))
     if guild_id:
-        q = select(GalleryItem).where(GalleryItem.guild_id == guild_id).order_by(desc(GalleryItem.created_at)).limit(limit).offset(offset)
+        q = q.where(GalleryItem.guild_id == guild_id)
+    if channel_id:
+        q = q.where(GalleryItem.channel_id == channel_id)
+    if starred_only:
+        q = q.where(GalleryItem.starred == True)
+    q = q.limit(limit).offset(offset)
     result = await db.execute(q)
     return {"items": [_to_dict(i) for i in result.scalars().all()]}
+
+
+@router.patch("/items/{item_id}/star")
+async def star_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    """Toggle the starred state of a gallery item."""
+    result = await db.execute(select(GalleryItem).where(GalleryItem.id == item_id))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "Item not found")
+    item.starred = not bool(item.starred)
+    await db.commit()
+    await db.refresh(item)
+    return _to_dict(item)
 
 
 @router.post("/upload")

@@ -10,3 +10,4 @@ davey
 google-api-python-client==2.196.0
 python-dotenv==1.2.2
 websockets==16.0
+psutil
