@@ -18,6 +18,7 @@ async def init_db():
             "ALTER TABLE gallery_items ADD COLUMN channel_id TEXT DEFAULT ''",
             "ALTER TABLE gallery_items ADD COLUMN starred INTEGER DEFAULT 0",
             "ALTER TABLE strategy_posts ADD COLUMN pinned INTEGER DEFAULT 0",
+            "ALTER TABLE strategy_posts ADD COLUMN source TEXT DEFAULT 'discord'",
         ]:
             try:
                 await conn.execute(text(sql))

@@ -142,3 +142,4 @@ class StrategyPost(Base):
     message_url = Column(String, default="")            # discord.com link (empty for admin-created)
     created_at = Column(DateTime, default=datetime.utcnow)
     pinned = Column(Boolean, default=False)             # pinned posts appear on strategy homepage
+    source = Column(String, default="discord")          # "discord" | "web"

@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import {
   getStrategyPosts, createStrategyPost, moveStrategyPost, deleteStrategyPost,
-  pinStrategyPost, type StrategyPost,
+  pinStrategyPost, editStrategyPost, type StrategyPost,
 } from "../lib/strategy";
 import { isAdminLoggedIn } from "../lib/admin";
-import { Trash2, ChevronUp, ChevronDown, ExternalLink, X, Plus, ImagePlus, ChevronLeft, ChevronRight, Play } from "lucide-react";
+import { Trash2, ChevronUp, ChevronDown, ExternalLink, X, Plus, ImagePlus, ChevronLeft, ChevronRight, Play, Pencil } from "lucide-react";
 
 const CATEGORIES = [
   { id: "strategy", label: "Strategy/攻略", emoji: "📋" },
@@ -48,6 +48,11 @@ function PostCard({
   const [zoom, setZoom] = useState(1);
   const [pinning, setPinning] = useState(false);
 
+  // Edit state
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState("");
+  const [saving, setSaving] = useState(false);
+
   const closeLightbox = () => { setLightboxItem(null); setZoom(1); };
 
   const handlePin = async (e: React.MouseEvent) => {
@@ -59,6 +64,27 @@ function PostCard({
       onUpdate(updated);
     } catch (err) { console.error(err); }
     setPinning(false);
+  };
+
+  const startEdit = () => {
+    setEditText(post.content);
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setEditText("");
+  };
+
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const updated = await editStrategyPost(post.id, editText);
+      onUpdate(updated);
+      setEditing(false);
+    } catch (err) { console.error(err); }
+    setSaving(false);
   };
 
   return (
@@ -75,7 +101,19 @@ function PostCard({
         )}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-yt-text truncate">{post.author_name}</p>
-          <p className="text-xs text-yt-muted">{timeAgo(post.created_at)}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <p className="text-xs text-yt-muted">{timeAgo(post.created_at)}</p>
+            {/* Source badge */}
+            {post.source === "web" ? (
+              <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-600 border border-blue-500/30">
+                Web
+              </span>
+            ) : (
+              <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-600 border border-indigo-500/30">
+                Discord
+              </span>
+            )}
+          </div>
         </div>
         {/* Pinned indicator */}
         {post.pinned && (
@@ -83,12 +121,45 @@ function PostCard({
         )}
       </div>
 
-      {/* Content */}
-      {(headline || body) && (
+      {/* Content — textarea in edit mode, prose otherwise */}
+      {editing ? (
         <div className="px-5 pb-3">
-          {headline && <p className="text-sm font-semibold text-yt-text">{headline}</p>}
-          {body && <p className="text-sm text-yt-muted mt-1 whitespace-pre-line">{body}</p>}
+          <textarea
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            rows={5}
+            autoFocus
+            className="w-full bg-yt-elevated border border-yt-border rounded-lg px-3 py-2 text-sm text-yt-text outline-none focus:border-yt-muted resize-none"
+          />
+          {post.source === "discord" && (
+            <p className="text-[11px] text-yt-muted mt-1 italic">
+              This post came from Discord — your edit updates the web copy only. The Discord message won't change.
+            </p>
+          )}
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="text-xs bg-yt-elevated hover:bg-yt-border text-yt-text px-3 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={cancelEdit}
+              disabled={saving}
+              className="text-xs text-yt-muted hover:text-yt-text transition-colors px-2 py-1.5"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
+      ) : (
+        (headline || body) && (
+          <div className="px-5 pb-3">
+            {headline && <p className="text-sm font-semibold text-yt-text">{headline}</p>}
+            {body && <p className="text-sm text-yt-muted mt-1 whitespace-pre-line">{body}</p>}
+          </div>
+        )
       )}
 
       {/* Media — left-aligned, no forced full-width, no black background */}
@@ -147,8 +218,16 @@ function PostCard({
           </a>
         ) : <span />}
 
-        {isAdmin && (
+        {isAdmin && !editing && (
           <div className="flex items-center gap-1">
+            {/* Edit button */}
+            <button
+              onClick={startEdit}
+              className="text-yt-muted hover:text-yt-text transition-colors p-1"
+              title="Edit post"
+            >
+              <Pencil size={14} />
+            </button>
             {/* Pin button */}
             <button
               onClick={handlePin}
@@ -172,6 +251,8 @@ function PostCard({
             </button>
           </div>
         )}
+        {/* While in edit mode, admin controls are replaced by Save/Cancel above the textarea */}
+        {isAdmin && editing && <span />}
       </div>
 
       {/* Lightbox — fixed overlay, breaks out of overflow:hidden via viewport positioning */}

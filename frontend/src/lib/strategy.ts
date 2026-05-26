@@ -29,6 +29,7 @@ export interface StrategyPost {
   message_url: string;
   created_at: string;
   pinned: boolean;
+  source: "web" | "discord";
 }
 
 export async function getStrategyPosts(
@@ -79,6 +80,19 @@ export async function deleteStrategyPost(id: number): Promise<void> {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail ?? "Request failed");
   }
+}
+
+export async function editStrategyPost(id: number, content: string): Promise<StrategyPost> {
+  const res = await fetch(`${BASE}/posts/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...adminHeaders() },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(body.detail ?? "Request failed");
+  }
+  return res.json();
 }
 
 export async function pinStrategyPost(id: number): Promise<StrategyPost> {

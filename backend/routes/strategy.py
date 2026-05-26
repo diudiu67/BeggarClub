@@ -40,6 +40,7 @@ def _post_to_dict(p: StrategyPost) -> dict:
         "message_url": p.message_url,
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "pinned": bool(p.pinned),
+        "source": p.source or "discord",
     }
 
 
@@ -114,6 +115,7 @@ async def create_strategy_post(
         position=max_pos + 1,
         message_url="",
         created_at=datetime.now(timezone.utc),
+        source="web",
     )
     db.add(post)
     await db.commit()
@@ -147,6 +149,24 @@ async def pin_post(post_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "Post not found")
     post.pinned = not post.pinned
     await db.commit()
+    return _post_to_dict(post)
+
+
+class EditRequest(BaseModel):
+    content: str
+
+
+@router.patch("/posts/{post_id}", dependencies=[Depends(require_admin)])
+async def edit_post(post_id: int, body: EditRequest, db: AsyncSession = Depends(get_db)):
+    """Admin-only — edit post text and propagate to Discord (bot-authored posts only)."""
+    post = await db.get(StrategyPost, post_id)
+    if not post:
+        raise HTTPException(404, "Post not found")
+    post.content = body.content
+    await db.commit()
+    # Fire Discord edit in bot loop — silently skips for user-authored Discord messages
+    import bot_runner
+    bot_runner.fire_in_bot(_edit_discord_message(post.message_id, body.content, post.category))
     return _post_to_dict(post)
 
 
@@ -222,3 +242,33 @@ async def _post_to_discord(post_id: int, content: str, media_items: list, catego
 
     except Exception as e:
         print(f"[Strategy] Failed to post to Discord: {e}")
+
+
+async def _edit_discord_message(message_id: str, new_content: str, category: str):
+    """Edit the Discord message if the bot authored it. Silently skips otherwise."""
+    from bot import bot
+    from config import settings
+
+    # "admin-{uuid}" placeholder means Discord post is still pending — skip
+    try:
+        mid = int(message_id)
+    except ValueError:
+        return
+
+    channel_id = (
+        settings.strategy_channel_id if category == "strategy"
+        else settings.guildwar_channel_id
+    )
+    if not channel_id:
+        return
+
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        return
+
+    try:
+        msg = await channel.fetch_message(mid)
+        # Use zero-width space if content is empty (Discord rejects fully empty edits)
+        await msg.edit(content=new_content if new_content else "​")
+    except Exception as e:
+        print(f"[Strategy] Could not edit Discord message {message_id}: {e}")
