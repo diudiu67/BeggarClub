@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
 import {
   getStrategyPosts, createStrategyPost, moveStrategyPost, deleteStrategyPost,
   pinStrategyPost, editStrategyPost, type StrategyPost,
 } from "../lib/strategy";
 import { isAdminLoggedIn } from "../lib/admin";
 import { Trash2, ChevronUp, ChevronDown, ExternalLink, X, Plus, ImagePlus, ChevronLeft, ChevronRight, Play, Pencil } from "lucide-react";
+import MarkdownEditor from "../components/MarkdownEditor";
 
 const CATEGORIES = [
   { id: "strategy", label: "Strategy/攻略", emoji: "📋" },
@@ -36,10 +40,10 @@ function PostCard({
   onDelete: () => void;
   onUpdate: (updated: StrategyPost) => void;
 }) {
-  const lines = post.content.split("\n").filter(Boolean);
-  const headline = lines[0] ?? "";
-  const body = lines.slice(1).join("\n");
   const mediaList = post.media ?? [];
+  // Pre-process Discord __underline__ → <u> so react-markdown renders it correctly
+  // (CommonMark treats __text__ as bold; we need underline here)
+  const renderedContent = (post.content || "").replace(/__([^_\n]+?)__/g, "<u>$1</u>");
   const images = mediaList.filter((m) => m.media_type === "image");
   const videos = mediaList.filter((m) => m.media_type === "video");
 
@@ -121,16 +125,10 @@ function PostCard({
         )}
       </div>
 
-      {/* Content — textarea in edit mode, prose otherwise */}
+      {/* Content — markdown editor in edit mode, rendered markdown otherwise */}
       {editing ? (
         <div className="px-5 pb-3">
-          <textarea
-            value={editText}
-            onChange={(e) => setEditText(e.target.value)}
-            rows={5}
-            autoFocus
-            className="w-full bg-yt-elevated border border-yt-border rounded-lg px-3 py-2 text-sm text-yt-text outline-none focus:border-yt-muted resize-none"
-          />
+          <MarkdownEditor value={editText} onChange={setEditText} autoFocus minRows={8} />
           {post.source === "discord" && (
             <p className="text-[11px] text-yt-muted mt-1 italic">
               This post came from Discord — your edit updates the web copy only. The Discord message won't change.
@@ -153,14 +151,13 @@ function PostCard({
             </button>
           </div>
         </div>
-      ) : (
-        (headline || body) && (
-          <div className="px-5 pb-3">
-            {headline && <p className="text-sm font-semibold text-yt-text">{headline}</p>}
-            {body && <p className="text-sm text-yt-muted mt-1 whitespace-pre-line">{body}</p>}
-          </div>
-        )
-      )}
+      ) : post.content ? (
+        <div className="px-5 pb-3 strategy-md">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+            {renderedContent}
+          </ReactMarkdown>
+        </div>
+      ) : null}
 
       {/* Media — left-aligned, no forced full-width, no black background */}
       {images.length === 1 && (
@@ -617,13 +614,12 @@ export default function StrategyPage({
               onMoveRight={(i) => movePreview(i, 1)}
             />
 
-            {/* Text area */}
-            <textarea
+            {/* Markdown editor */}
+            <MarkdownEditor
               value={formText}
-              onChange={(e) => setFormText(e.target.value)}
-              placeholder="Write your post…"
-              rows={4}
-              className="bg-yt-elevated border border-yt-border rounded-lg px-3 py-2 text-sm text-yt-text outline-none focus:border-yt-muted resize-none"
+              onChange={setFormText}
+              placeholder="Write your post… **bold**, *italic*, __underline__"
+              minRows={8}
             />
 
             {/* Add media button */}
