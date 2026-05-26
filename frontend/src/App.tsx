@@ -79,14 +79,17 @@ export default function App() {
     }
   }, []);
 
-  // Load guilds on mount and restore saved guild
+  // Load guilds on mount and restore saved guild (auto-selects first guild if none saved)
   useEffect(() => {
     getGuilds().then((g) => {
       setGuilds(g);
       const savedId = localStorage.getItem("selectedGuildId");
-      if (savedId) {
-        const saved = g.find((x) => x.id === savedId);
-        if (saved) setSelectedGuild(saved);
+      const saved = savedId ? g.find((x) => x.id === savedId) : null;
+      // Use saved preference or fall back to first available guild
+      const toSelect = saved ?? g[0] ?? null;
+      if (toSelect) {
+        setSelectedGuild(toSelect);
+        if (!saved) localStorage.setItem("selectedGuildId", toSelect.id);
       }
     }).catch(console.error);
   }, []);

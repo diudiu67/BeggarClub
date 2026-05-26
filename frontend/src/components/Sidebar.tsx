@@ -91,25 +91,27 @@ export default function Sidebar({
       {/* Server + Voice channel controls — only on music mode */}
       {mode === "music" && (
         <div className="px-3 space-y-2 mb-3">
-          {/* Server selector */}
-          <div>
-            <label className="text-[10px] font-semibold text-yt-muted uppercase tracking-widest px-1 mb-1 block">
-              Server
-            </label>
-            <select
-              value={selectedGuild?.id || ""}
-              onChange={(e) => {
-                const g = guilds.find((g) => g.id === e.target.value);
-                if (g) onSelectGuild(g);
-              }}
-              className="w-full bg-yt-surface text-yt-text text-sm border border-yt-border rounded-md px-2 py-1.5 outline-none focus:border-yt-muted cursor-pointer"
-            >
-              <option value="">Select server…</option>
-              {guilds.map((g) => (
-                <option key={g.id} value={g.id}>{g.name}</option>
-              ))}
-            </select>
-          </div>
+          {/* Server selector — only shown when bot is in multiple servers */}
+          {guilds.length > 1 && (
+            <div>
+              <label className="text-[10px] font-semibold text-yt-muted uppercase tracking-widest px-1 mb-1 block">
+                Server
+              </label>
+              <select
+                value={selectedGuild?.id || ""}
+                onChange={(e) => {
+                  const g = guilds.find((g) => g.id === e.target.value);
+                  if (g) onSelectGuild(g);
+                }}
+                className="w-full bg-yt-surface text-yt-text text-sm border border-yt-border rounded-md px-2 py-1.5 outline-none focus:border-yt-muted cursor-pointer"
+              >
+                <option value="">Select server…</option>
+                {guilds.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Voice channel selector */}
           {selectedGuild && (
