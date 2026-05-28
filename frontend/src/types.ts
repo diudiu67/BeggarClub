@@ -54,6 +54,7 @@ export interface VoiceChannel {
   name: string;
   members: number;
   member_names?: string[];
+  bitrate?: number;  // bps — e.g. 256000 for 256 kbps
 }
 
 export interface GalleryItem {

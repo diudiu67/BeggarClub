@@ -116,9 +116,17 @@ export default function Sidebar({
           {/* Voice channel selector */}
           {selectedGuild && (
             <div>
-              <label className="text-[10px] font-semibold text-yt-muted uppercase tracking-widest px-1 mb-1 block">
-                Voice Channel
-              </label>
+              <div className="flex items-center justify-between px-1 mb-1">
+                <label className="text-[10px] font-semibold text-yt-muted uppercase tracking-widest">
+                  Voice Channel
+                </label>
+                {selectedChannel?.bitrate && (
+                  <span className="flex items-center gap-1 text-[10px] font-semibold text-green-600">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+                    {selectedChannel.bitrate / 1000} kbps
+                  </span>
+                )}
+              </div>
               <select
                 value={selectedChannel?.id || ""}
                 onChange={(e) => {

@@ -103,6 +103,19 @@ FFMPEG_OPTIONS = {
 }
 
 
+def _set_encoder_bitrate(voice_client) -> None:
+    """Set Opus encoder bitrate to match the voice channel's configured bitrate.
+    Reads channel.bitrate (bps) from Discord and applies it to the encoder so
+    the bot automatically uses whatever quality the server allows (e.g. 256 kbps
+    on a Level 2 boosted server) without any hardcoding.
+    """
+    try:
+        kbps = getattr(voice_client.channel, "bitrate", 128000) // 1000
+        voice_client.encoder.set_bitrate(kbps)
+    except Exception:
+        pass
+
+
 
 async def _save_gallery_item(item_data: dict):
     """Run on FastAPI loop — saves a gallery item to the database."""
@@ -996,6 +1009,7 @@ async def play_track(guild_id: str, track: Track):
         asyncio.run_coroutine_threadsafe(_on_song_end(guild_id), bot_runner.get_bot_loop())
 
     gp.voice_client.play(source, after=after_play)
+    _set_encoder_bitrate(gp.voice_client)
     await gp.broadcast("now_playing")
 
     # Queue management after track starts.
@@ -1081,6 +1095,7 @@ async def seek_to(guild_id: str, position: float):
         source = discord.FFmpegPCMAudio(track.stream_url, **seek_opts)
         source = discord.PCMVolumeTransformer(source, volume=gp.volume)
         gp.voice_client.play(source, after=make_after_play(gen, f"seek@{int(position)}"))
+        _set_encoder_bitrate(gp.voice_client)
         gp.started_at = time.time() - position
         print(f"[Seek] voice_client.play() called, is_playing={gp.voice_client.is_playing()}")
     else:
@@ -1090,6 +1105,7 @@ async def seek_to(guild_id: str, position: float):
         })
         source = discord.PCMVolumeTransformer(source, volume=gp.volume)
         gp.voice_client.play(source, after=make_after_play(gen, "seek@0"))
+        _set_encoder_bitrate(gp.voice_client)
         gp.started_at = time.time()
 
     await gp.broadcast("now_playing")
@@ -1122,6 +1138,7 @@ async def _verify_seek(guild_id: str, gen: int, track: Track):
             asyncio.run_coroutine_threadsafe(_on_song_end(guild_id), bot_runner.get_bot_loop())
 
         gp.voice_client.play(source, after=after_play)
+        _set_encoder_bitrate(gp.voice_client)
         gp.started_at = time.time()
         await gp.broadcast("now_playing")
 
@@ -1444,6 +1461,7 @@ async def get_voice_channels_async(guild_id: str) -> list[dict]:
             "name": ch.name,
             "members": len(ch.members),
             "member_names": [m.display_name for m in ch.members if not m.bot],
+            "bitrate": ch.bitrate,
         }
         for ch in guild.voice_channels
     ]
