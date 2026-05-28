@@ -116,6 +116,25 @@ def _set_encoder_bitrate(voice_client) -> None:
         pass
 
 
+def _is_webm_stream(url: str) -> bool:
+    """Return True if the URL is a WebM/Opus DASH stream (itag 251).
+    WebM DASH uses byte-range segment URLs — FFmpeg's -reconnect_streamed flag
+    causes IO error -10054 (Broken pipe) on these and must be omitted.
+    Standard HTTP streams (m4a, itag 140) still benefit from -reconnect_streamed.
+    """
+    return "itag=251" in url or "mime=audio%2Fwebm" in url or "mime=audio/webm" in url
+
+
+def _ffmpeg_opts_for(stream_url: str) -> dict:
+    """Return FFmpeg options tuned for the detected stream type.
+    WebM/Opus DASH → no -reconnect_streamed (DASH byte-range segments are not seekable streams).
+    m4a/AAC HTTP  → keep -reconnect_streamed for mid-song reconnection resilience.
+    """
+    if _is_webm_stream(stream_url):
+        return {"before_options": "-reconnect 1 -reconnect_delay_max 5", "options": "-vn"}
+    return FFMPEG_OPTIONS
+
+
 
 async def _save_gallery_item(item_data: dict):
     """Run on FastAPI loop — saves a gallery item to the database."""
@@ -997,7 +1016,7 @@ async def play_track(guild_id: str, track: Track):
     gp.is_paused = False
     gp.started_at = time.time()
 
-    source = discord.FFmpegPCMAudio(track.stream_url, **FFMPEG_OPTIONS)
+    source = discord.FFmpegPCMAudio(track.stream_url, **_ffmpeg_opts_for(track.stream_url))
     source = discord.PCMVolumeTransformer(source, volume=gp.volume)
 
     def after_play(error):
@@ -1126,7 +1145,7 @@ async def _verify_seek(guild_id: str, gen: int, track: Track):
         print("[Bot] Seek produced no audio — restarting from beginning")
         gp._play_generation += 1
         new_gen = gp._play_generation
-        source = discord.FFmpegPCMAudio(track.stream_url, **FFMPEG_OPTIONS)
+        source = discord.FFmpegPCMAudio(track.stream_url, **_ffmpeg_opts_for(track.stream_url))
         source = discord.PCMVolumeTransformer(source, volume=gp.volume)
 
         def after_play(error):

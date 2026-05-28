@@ -5,14 +5,13 @@ from googleapiclient.discovery import build
 from config import settings
 
 YDL_OPTIONS = {
-    # Prefer m4a/AAC 128 kbps (itag 140) — it's a standard HTTP stream that survives
-    # FFmpeg's -reconnect_streamed flag reliably.  WebM/Opus (itag 251, ~160 kbps) is
-    # technically higher bitrate but is a DASH stream; its byte-range URLs break FFmpeg
-    # reconnection (IO error -10054 / Broken pipe mid-song).
-    # Fall back: any m4a → any webm → anything audio-only → best overall.
+    # Prefer WebM/Opus (itag 251, ~160 kbps) — higher quality than m4a/AAC 128 kbps.
+    # WebM is a DASH stream (byte-range URLs) so bot.py uses stream-aware FFmpeg options
+    # that omit -reconnect_streamed, which would cause IO error -10054 on DASH segments.
+    # Falls back to m4a (itag 140, 128 kbps) if WebM is unavailable (e.g. age-gated).
     "format": (
-        "bestaudio[ext=m4a]"
-        "/bestaudio[ext=webm]"
+        "bestaudio[ext=webm]"
+        "/bestaudio[ext=m4a]"
         "/bestaudio"
         "/best"
     ),
