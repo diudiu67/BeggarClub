@@ -65,7 +65,7 @@ async def get_items(
     guild_id: str = "",
     channel_id: str = "",
     starred_only: bool = False,
-    limit: int = 100,
+    limit: int = 500,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
