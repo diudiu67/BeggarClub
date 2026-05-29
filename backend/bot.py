@@ -2,6 +2,7 @@ import asyncio
 import glob
 import json
 import logging
+import os
 import random
 import time
 import uuid
@@ -30,6 +31,17 @@ _vfh = logging.FileHandler(
 _vfh.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
 _vlog.addHandler(_vfh)
 _vlog.info("=== bot.py loaded ===")
+
+# ── Route discord.py voice-WS and gateway events into voice_events.log ───────
+# discord.voice_client: DEBUG → captures voice-WS close codes (4006, 4014, etc.)
+# discord.gateway:      INFO  → captures RESUME/IDENTIFY without heartbeat spam
+for _dpy_logger_name, _dpy_level in (
+    ("discord.voice_client", logging.DEBUG),
+    ("discord.gateway",      logging.INFO),
+):
+    _dpy_log = logging.getLogger(_dpy_logger_name)
+    _dpy_log.setLevel(_dpy_level)
+    _dpy_log.addHandler(_vfh)
 
 OWNER_ID = settings.OWNER_ID
 
@@ -892,37 +904,50 @@ async def on_ready():
 
 @bot.event
 async def on_resumed():
-    """Gateway RESUME carries stale voice session_ids which cause 4006.
-    Save current voice state, clear it, then silently rejoin + resume."""
-    _vlog.info("on_resumed — saving voice state before clearing")
+    """Gateway RESUME — discord.py 2.x handles voice-WS reconnection internally
+    via reconnect=True on VoiceClient.connect().  Tearing down voice on every
+    RESUME caused ~30 artificial disconnects per 48 h; no 4006 was ever observed
+    in logs (the original 4006 comment was AI-scaffolded in the initial commit
+    with no real-world validation — confirmed by git archaeology 2026-05-30).
 
-    # Save which channel each guild was in and what was playing
-    saved: dict[str, dict] = {}
+    Default: log state and let discord.py manage voice-WS reconnection silently.
+    Emergency rollback: set RESUME_TEARDOWN=1 in the process environment to
+    restore the old save-clear-rejoin path (e.g. if 4006 codes appear in
+    voice_events.log from discord.voice_client DEBUG output)."""
+
+    if os.environ.get("RESUME_TEARDOWN") == "1":
+        # ── Legacy rollback path (activate only if 4006 observed in logs) ────
+        _vlog.info("on_resumed — RESUME_TEARDOWN=1: legacy teardown+rejoin path")
+        saved: dict[str, dict] = {}
+        for guild in bot.guilds:
+            gp = player_manager.get(str(guild.id))
+            vc_connected = gp.voice_client and gp.voice_client.is_connected()
+            _vlog.info(f"  guild={guild.name}  vc_connected={vc_connected}  last_channel={gp.last_voice_channel_id}  current={gp.current.title[:30] if gp.current else 'None'}")
+            if vc_connected:
+                saved[str(guild.id)] = {
+                    "channel_id": str(gp.voice_client.channel.id),
+                    "current": gp.current,
+                    "started_at": gp.started_at,
+                }
+            elif gp.last_voice_channel_id and gp.current:
+                _vlog.info(f"  vc already gone, using last_voice_channel_id={gp.last_voice_channel_id}")
+                saved[str(guild.id)] = {
+                    "channel_id": gp.last_voice_channel_id,
+                    "current": gp.current,
+                    "started_at": gp.started_at,
+                }
+        await _clear_all_voice()
+        for guild_id, state in saved.items():
+            _vlog.info(f"  scheduling rejoin for guild={guild_id} channel={state['channel_id']}")
+            asyncio.create_task(_rejoin_and_resume(guild_id, state["channel_id"], state["current"], state["started_at"]))
+        return
+
+    # ── Normal path: discord.py reconnect=True handles voice-WS silently ─────
+    _vlog.info("on_resumed — no teardown; discord.py voice-WS reconnect active")
     for guild in bot.guilds:
         gp = player_manager.get(str(guild.id))
         vc_connected = gp.voice_client and gp.voice_client.is_connected()
-        _vlog.info(f"  guild={guild.name}  vc_connected={vc_connected}  last_channel={gp.last_voice_channel_id}  current={gp.current.title[:30] if gp.current else 'None'}")
-        if vc_connected:
-            saved[str(guild.id)] = {
-                "channel_id": str(gp.voice_client.channel.id),
-                "current": gp.current,
-                "started_at": gp.started_at,
-            }
-        elif gp.last_voice_channel_id and gp.current:
-            # Voice client already dropped before on_resumed fired — use saved channel
-            _vlog.info(f"  vc already gone, using last_voice_channel_id={gp.last_voice_channel_id}")
-            saved[str(guild.id)] = {
-                "channel_id": gp.last_voice_channel_id,
-                "current": gp.current,
-                "started_at": gp.started_at,
-            }
-
-    await _clear_all_voice()
-
-    # Rejoin and resume for every guild that was active
-    for guild_id, state in saved.items():
-        _vlog.info(f"  scheduling rejoin for guild={guild_id} channel={state['channel_id']}")
-        asyncio.create_task(_rejoin_and_resume(guild_id, state["channel_id"], state["current"], state["started_at"]))
+        _vlog.info(f"  guild={guild.name}  vc_connected={vc_connected}  current={gp.current.title[:30] if gp.current else 'None'}")
 
 
 async def _rejoin_and_resume(guild_id: str, channel_id: str, track, started_at: float):
