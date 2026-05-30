@@ -951,26 +951,48 @@ async def on_resumed():
 
 
 async def _rejoin_and_resume(guild_id: str, channel_id: str, track, started_at: float):
-    """Rejoin a voice channel and resume playback after a gateway reconnect."""
-    await asyncio.sleep(5.0)  # Let Discord settle
+    """Rejoin a voice channel and resume playback after a gateway reconnect.
 
-    _vlog.info(f"_rejoin_and_resume  guild={guild_id}  channel={channel_id}  track={track.title[:40] if track else 'None'}")
-    success, msg = await join_channel(guild_id, channel_id)
-    _vlog.info(f"  join_channel result: success={success}  msg={msg}")
-    if not success:
-        asyncio.create_task(send_owner_dm(
-            f"❌ **[REJOIN FAILED]**\n"
-            f"Could not rejoin voice channel after disconnect.\n"
-            f"Reason: {msg[:200]}"
-        ))
-        return
+    discord.py's reconnect=True (set in join_channel/channel.connect) handles
+    voice-WS reconnection automatically and fires on_voice_state_update when it
+    succeeds.  By the time this coroutine wakes up (5 s later) the VC is usually
+    already healthy again — so we skip the redundant join_channel and go straight
+    to restarting the audio source at the saved position.
 
+    join_channel is still called as a fallback when discord.py's reconnect failed
+    (VC is None, disconnected, or on a different channel).
+    """
+    await asyncio.sleep(5.0)  # Let discord.py finish its own reconnect first
+
+    gp = player_manager.get(guild_id)
+    vc = gp.voice_client
+    already_healthy = (
+        vc is not None
+        and vc.is_connected()
+        and str(getattr(vc.channel, "id", "")) == channel_id
+    )
+
+    if already_healthy:
+        _vlog.info(f"_rejoin_and_resume  guild={guild_id}  vc already healthy — skipping join_channel")
+    else:
+        _vlog.info(f"_rejoin_and_resume  guild={guild_id}  channel={channel_id}  track={track.title[:40] if track else 'None'}")
+        success, msg = await join_channel(guild_id, channel_id)
+        _vlog.info(f"  join_channel result: success={success}  msg={msg}")
+        if not success:
+            asyncio.create_task(send_owner_dm(
+                f"❌ **[REJOIN FAILED]**\n"
+                f"Could not rejoin voice channel after disconnect.\n"
+                f"Reason: {msg[:200]}"
+            ))
+            return
+
+    # Always restart the audio source — discord.py's reconnect restores the voice
+    # WebSocket but has no concept of our FFmpeg AudioSource or playback position.
     if track:
         position = max(0.0, time.time() - started_at) if started_at else 0.0
         if track.duration and position >= track.duration - 5:
             position = 0.0
         _vlog.info(f"  resuming at {int(position)}s")
-        gp = player_manager.get(guild_id)
         gp.current = track
         gp.started_at = started_at
         try:
