@@ -807,7 +807,11 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
     # Unexpected disconnect — check cooldown (don't retry more than once per 30s)
     now = time.time()
     if now - gp._last_reconnect_attempt < 30:
-        _vlog.info(f"Unexpected disconnect from #{before.channel.name} — cooldown active, skipping")
+        # Don't silently drop back-to-back kicks — queue a delayed rejoin that fires
+        # once the cooldown window has cleared (35 s from the previous attempt).
+        delay = (gp._last_reconnect_attempt + 35) - now
+        _vlog.info(f"Unexpected disconnect from #{before.channel.name} — cooldown active, queuing delayed rejoin in {delay:.0f}s")
+        asyncio.create_task(_rejoin_and_resume(guild_id, channel_id, gp.current, gp.started_at, delay=delay))
         return
 
     gp._last_reconnect_attempt = now
@@ -950,7 +954,7 @@ async def on_resumed():
         _vlog.info(f"  guild={guild.name}  vc_connected={vc_connected}  current={gp.current.title[:30] if gp.current else 'None'}")
 
 
-async def _rejoin_and_resume(guild_id: str, channel_id: str, track, started_at: float):
+async def _rejoin_and_resume(guild_id: str, channel_id: str, track, started_at: float, delay: float = 5.0):
     """Rejoin a voice channel and resume playback after a gateway reconnect.
 
     discord.py's reconnect=True (set in join_channel/channel.connect) handles
@@ -961,8 +965,11 @@ async def _rejoin_and_resume(guild_id: str, channel_id: str, track, started_at: 
 
     join_channel is still called as a fallback when discord.py's reconnect failed
     (VC is None, disconnected, or on a different channel).
+
+    delay defaults to 5 s (normal path).  Back-to-back kicks within the 30 s
+    cooldown window pass a longer delay so the rejoin fires after the window clears.
     """
-    await asyncio.sleep(5.0)  # Let discord.py finish its own reconnect first
+    await asyncio.sleep(delay)  # Let discord.py finish its own reconnect first
 
     gp = player_manager.get(guild_id)
     vc = gp.voice_client
@@ -1003,10 +1010,11 @@ async def _rejoin_and_resume(guild_id: str, channel_id: str, track, started_at: 
 
 async def _clear_all_voice():
     """Disconnect from all voice channels and wipe internal voice client cache."""
-    # Mark all guilds as intentionally disconnecting so on_voice_state_update
-    # doesn't trigger auto-rejoin while we're doing this deliberately.
-    for guild in bot.guilds:
-        player_manager.get(str(guild.id)).intentional_disconnect = True
+    # Only mark guilds where the bot is actually in voice — setting the flag on
+    # every guild leaks it to guilds with no active VC, causing the next real
+    # disconnect in those guilds to be misclassified as intentional and ignored.
+    for vc in bot.voice_clients:
+        player_manager.get(str(vc.guild.id)).intentional_disconnect = True
 
     for vc in list(bot.voice_clients):
         try:
@@ -1444,7 +1452,15 @@ async def join_channel(guild_id: str, channel_id: str) -> tuple[bool, str]:
         return True, "ok"
     except discord.errors.ConnectionClosed as e:
         gp.voice_client = None
-        return False, f"Discord rejected the voice connection (code {e.code}). Make sure the bot has Connect + Speak permissions."
+        _vlog.info(f"join_channel  ConnectionClosed  code={e.code}  guild={guild_id}  channel={channel_id}")
+        _code_msgs = {
+            4006: "4006 — voice session no longer valid (stale session ID). discord.py will retry automatically.",
+            4014: "4014 — disconnected by Discord/server admin. Check bot permissions or whether it was kicked.",
+            4003: "4003 — not authenticated. Token issue or bot restarted mid-session.",
+            1000: "1000 — normal closure (Discord closed the WS cleanly).",
+        }
+        detail = _code_msgs.get(e.code, f"code {e.code} — check Discord status or bot permissions.")
+        return False, f"Discord rejected the voice connection: {detail}"
     except discord.errors.ClientException as e:
         gp.voice_client = None
         return False, f"Bot client error: {e}"
