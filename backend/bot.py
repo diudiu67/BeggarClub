@@ -147,6 +147,55 @@ def _ffmpeg_opts_for(stream_url: str) -> dict:
     return FFMPEG_OPTIONS
 
 
+# ── Voice state sidecar ───────────────────────────────────────────────────────
+# Persists the active track + channel to disk so on_ready can restore playback
+# after a uvicorn restart (when all in-memory GuildPlayer state is lost).
+
+_VOICE_SIDECAR = os.path.join(os.path.dirname(__file__), "voice_state.json")
+_SIDECAR_MAX_AGE = 12 * 3600  # ignore stale entries older than 12 hours
+
+
+def _load_voice_sidecar() -> dict:
+    try:
+        with open(_VOICE_SIDECAR, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_voice_sidecar(guild_id: str, channel_id: str, track) -> None:
+    """Write the currently playing track + channel to the sidecar file."""
+    if not channel_id:
+        return
+    try:
+        data = _load_voice_sidecar()
+        data[guild_id] = {
+            "channel_id": channel_id,
+            "video_id": track.video_id,
+            "title": track.title,
+            "artist": track.artist,
+            "thumbnail": track.thumbnail,
+            "duration": track.duration,
+            "requested_by": getattr(track, "requested_by", ""),
+            "saved_at": time.time(),
+        }
+        with open(_VOICE_SIDECAR, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[VoiceSidecar] Save failed: {e}")
+
+
+def _clear_voice_sidecar(guild_id: str) -> None:
+    """Remove a guild's entry from the sidecar (called on intentional leave)."""
+    try:
+        data = _load_voice_sidecar()
+        if guild_id in data:
+            data.pop(guild_id)
+            with open(_VOICE_SIDECAR, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[VoiceSidecar] Clear failed: {e}")
+
 
 async def _save_gallery_item(item_data: dict):
     """Run on FastAPI loop — saves a gallery item to the database."""
@@ -900,10 +949,28 @@ async def on_ready():
             }
             _vlog.info(f"  on_ready: will rejoin guild={guild.id} channel={gp.last_voice_channel_id} track={gp.current.title[:40]}")
 
+    # For guilds with no in-memory state (fresh start / uvicorn restart), check
+    # the voice state sidecar and queue a restore if the entry is recent enough.
+    sidecar = _load_voice_sidecar()
+    sidecar_restores: dict[str, dict] = {}
+    for guild in bot.guilds:
+        gid = str(guild.id)
+        if gid not in saved and gid in sidecar:
+            entry = sidecar[gid]
+            age = time.time() - entry.get("saved_at", 0)
+            if age < _SIDECAR_MAX_AGE:
+                sidecar_restores[gid] = entry
+                _vlog.info(f"  on_ready: sidecar restore queued for guild={gid} channel={entry['channel_id']} track={entry['title'][:40]} (age={int(age)}s)")
+            else:
+                _vlog.info(f"  on_ready: sidecar entry for guild={gid} is too old ({int(age)}s) — skipping")
+
     await _clear_all_voice()
 
     for guild_id, state in saved.items():
         asyncio.create_task(_rejoin_and_resume(guild_id, state["channel_id"], state["current"], state["started_at"]))
+
+    for guild_id, entry in sidecar_restores.items():
+        asyncio.create_task(_restore_from_sidecar(guild_id, entry))
 
 
 @bot.event
@@ -1008,6 +1075,37 @@ async def _rejoin_and_resume(guild_id: str, channel_id: str, track, started_at: 
             _vlog.info(f"  resume failed: {e}")
 
 
+async def _restore_from_sidecar(guild_id: str, entry: dict) -> None:
+    """Rejoin voice and restart playback from the voice state sidecar.
+
+    Called from on_ready when the process has no in-memory voice state (fresh
+    start or uvicorn restart).  The saved stream_url has expired, so we pass
+    stream_url="" and let play_track fetch a fresh one via yt-dlp.
+    """
+    await asyncio.sleep(8.0)  # Give discord.py time to fully connect
+    channel_id = entry["channel_id"]
+    success, msg = await join_channel(guild_id, channel_id)
+    _vlog.info(f"_restore_from_sidecar  guild={guild_id}  join: success={success}  msg={msg}")
+    if not success:
+        asyncio.create_task(send_owner_dm(
+            f"⚠️ **[SIDECAR RESTORE FAILED]**\n"
+            f"Could not rejoin voice after restart.\n"
+            f"Channel: {channel_id}\nReason: {msg[:200]}"
+        ))
+        return
+    track = Track(
+        video_id=entry["video_id"],
+        title=entry["title"],
+        artist=entry["artist"],
+        thumbnail=entry["thumbnail"],
+        duration=entry["duration"],
+        requested_by=entry.get("requested_by", ""),
+        stream_url="",  # play_track fetches a fresh URL when stream_url is empty
+    )
+    _vlog.info(f"  restoring track: {track.title[:50]}")
+    await play_track(guild_id, track)
+
+
 async def _clear_all_voice():
     """Disconnect from all voice channels and wipe internal voice client cache."""
     # Only mark guilds where the bot is actually in voice — setting the flag on
@@ -1070,6 +1168,7 @@ async def play_track(guild_id: str, track: Track):
     gp.current = track
     gp.is_paused = False
     gp.started_at = time.time()
+    _save_voice_sidecar(guild_id, gp.last_voice_channel_id or "", track)
 
     source = discord.FFmpegPCMAudio(track.stream_url, **_ffmpeg_opts_for(track.stream_url))
     source = discord.PCMVolumeTransformer(source, volume=gp.volume)
@@ -1173,10 +1272,7 @@ async def seek_to(guild_id: str, position: float):
         gp.started_at = time.time() - position
         print(f"[Seek] voice_client.play() called, is_playing={gp.voice_client.is_playing()}")
     else:
-        source = discord.FFmpegPCMAudio(track.stream_url, **{
-            "before_options": "-reconnect 1 -reconnect_delay_max 5",
-            "options": "-vn",
-        })
+        source = discord.FFmpegPCMAudio(track.stream_url, **_ffmpeg_opts_for(track.stream_url))
         source = discord.PCMVolumeTransformer(source, volume=gp.volume)
         gp.voice_client.play(source, after=make_after_play(gen, "seek@0"))
         _set_encoder_bitrate(gp.voice_client)
@@ -1530,6 +1626,7 @@ async def stop_and_disconnect(guild_id: str):
         gp.voice_client = None
     gp.current = None
     gp.queue.clear()
+    _clear_voice_sidecar(guild_id)
     await gp.broadcast("voice_updated")
 
 
