@@ -8,6 +8,7 @@ from typing import Optional
 
 _bot_loop: Optional[asyncio.AbstractEventLoop] = None
 _fastapi_loop: Optional[asyncio.AbstractEventLoop] = None
+_bot_thread: Optional[threading.Thread] = None
 
 
 def set_fastapi_loop(loop: asyncio.AbstractEventLoop):
@@ -28,6 +29,16 @@ async def run(coro):
     """Call a bot coroutine from FastAPI's async context and await its result."""
     future = asyncio.run_coroutine_threadsafe(coro, get_bot_loop())
     return await asyncio.wrap_future(future)
+
+
+def is_bot_alive() -> bool:
+    """Return True if the bot daemon thread is still running.
+
+    Returns False if the thread has never been started or has exited (i.e. the
+    bot crashed and nobody restarted uvicorn yet).  monitor.ps1 polls /api/health
+    every 5 minutes and restarts uvicorn when this is False.
+    """
+    return _bot_thread is not None and _bot_thread.is_alive()
 
 
 def get_bot():
@@ -75,5 +86,6 @@ def _thread_main(token: str):
 
 
 def launch(token: str):
-    t = threading.Thread(target=_thread_main, args=(token,), daemon=True)
-    t.start()
+    global _bot_thread
+    _bot_thread = threading.Thread(target=_thread_main, args=(token,), daemon=True)
+    _bot_thread.start()

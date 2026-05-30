@@ -92,7 +92,7 @@ def _check_secret(secret: str):
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True}
+    return {"ok": True, "bot_alive": bot_runner.is_bot_alive()}
 
 
 @app.websocket("/ws/{guild_id}")
